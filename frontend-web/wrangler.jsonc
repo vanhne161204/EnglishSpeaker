@@ -1,0 +1,15 @@
+{
+  // Deploy the pre-built TanStack Start (nitro/cloudflare) output directly.
+  // Having an explicit `main` makes `wrangler deploy` upload the built worker
+  // instead of trying to re-build through the Vite plugin (which fails against
+  // the Lovable vite-config wrapper). See docs/DEPLOYMENT.md §8.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "englishspeaker",
+  "main": "dist/server/server.js",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "dist/client",
+    "binding": "ASSETS"
+  }
+}
