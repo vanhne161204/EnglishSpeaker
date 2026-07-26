@@ -1,0 +1,28 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Secrets — never commit real env files or private keys
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.prod.example
+*.pem
+*.key
+id_rsa*
+
+# Local database backups (see docs/DEPLOYMENT.md §14)
+backups/
+*.sql
+*.sql.gz
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+
+# Design reference (Lovable mock) — its own git repo, not part of the app
+frontend-web-design/
+
+# See backend/.gitignore and frontend/.gitignore for stack-specific rules.

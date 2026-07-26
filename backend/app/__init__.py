@@ -1,0 +1,1 @@
+"""EnglishTalker API application package."""

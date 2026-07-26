@@ -1,0 +1,120 @@
+name: deploy
+
+# Continuous deployment of the backend to the production EC2.
+#
+# Flow on every push to main that touches the backend or deploy files:
+#   1. verify  — run the backend test/lint suite (never deploy a red build)
+#   2. build   — build the API image and push it to GHCR (layer-cached, so daily
+#                pushes only upload the changed code layer)
+#   3. deploy  — SSH to the EC2: back up the DB, pull the new image, run Alembic
+#                migrations, restart, and health-check. Fails loudly if unhealthy.
+#
+# The frontend (frontend-web/) deploys separately and automatically via
+# Cloudflare Pages on push to main — no step needed here.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   EC2_HOST         Elastic IP or api.yourname.me
+#   EC2_USER         e.g. ec2-user
+#   EC2_SSH_KEY      private key (PEM) for that user
+#   GHCR_PAT         a read:packages token so the EC2 can pull the private image
+#   HEALTHCHECK_URL  e.g. https://api.yourname.me/api/v1/health
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "deploy/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch: {} # allow manual "Run workflow" from the Actions tab
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false # never interrupt a deploy mid-migration
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/englishtalker-api
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: pytest
+
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: GHCR_USER,GHCR_PAT,HEALTHCHECK_URL
+          script: |
+            set -euo pipefail
+            cd ~/englishtalker/deploy
+
+            # Authenticate to GHCR so the private image can be pulled.
+            echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+
+            # 1) Back up the database BEFORE any change (see deploy/backup.sh).
+            ./backup.sh
+
+            # 2) Pull the freshly built API image.
+            docker compose -f docker-compose.prod.yml pull api
+
+            # 3) Run migrations with the new image (safe: additive, backed up above).
+            docker compose -f docker-compose.prod.yml run --rm api alembic upgrade head
+
+            # 4) Restart the app with the new image.
+            docker compose -f docker-compose.prod.yml up -d
+
+            # 5) Health check — fail the deploy (red) if the API isn't serving.
+            for i in $(seq 1 10); do
+              if curl -fsS "$HEALTHCHECK_URL" > /dev/null; then
+                echo "Healthy ✅"; exit 0
+              fi
+              echo "waiting for health... ($i)"; sleep 3
+            done
+            echo "Health check failed ❌"; exit 1
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+          HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL }}

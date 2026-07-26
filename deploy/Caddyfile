@@ -1,0 +1,7 @@
+# Auto-HTTPS reverse proxy for the API (see docs/DEPLOYMENT.md §9).
+# Caddy fetches and renews a free Let's Encrypt certificate automatically.
+# Requires: ports 80 + 443 open, and api.englishspeaker.me pointing at this box.
+
+api.englishspeaker.me {
+	reverse_proxy api:8000
+}

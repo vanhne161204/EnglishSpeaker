@@ -1,0 +1,21 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+sqlalchemy[asyncio]>=2.0
+aiosqlite>=0.20
+asyncpg>=0.29
+alembic>=1.13
+pydantic>=2.7
+pydantic-settings>=2.3
+python-jose[cryptography]>=3.3
+passlib[bcrypt]>=1.7
+redis>=5.0
+pgvector>=0.3
+anthropic>=0.40
+# Async HTTP client (Google Translate provider, outbound calls).
+httpx>=0.27
+# Multipart parsing for file uploads (Speech-to-Text audio).
+python-multipart>=0.0.9
+# Offline, open-source neural translation (no LLM) — alternative translator engine.
+argostranslate>=1.9
+# Offline, open-source Speech-to-Text (no LLM) — default transcription engine.
+faster-whisper>=1.0
