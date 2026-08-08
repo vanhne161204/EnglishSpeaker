@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { createNote, listTopics, type Topic } from "@/lib/api";
 import { resolveWarmupQuestions } from "@/lib/warmup";
-import { useSpeechToText } from "@/lib/voice/use-speech-to-text";
+import { useMicTranscribe } from "@/lib/voice/use-mic-transcribe";
 import { levelLabel, topicEmoji } from "@/lib/presentation";
 import { ErrorState } from "./topics.index";
 
@@ -157,10 +157,7 @@ function WarmupSession({
   allTopics: readonly Topic[];
   onExit: () => void;
 }) {
-  const questions = useMemo(
-    () => resolveWarmupQuestions(topic, allTopics),
-    [topic, allTopics],
-  );
+  const questions = useMemo(() => resolveWarmupQuestions(topic, allTopics), [topic, allTopics]);
   const [lines, setLines] = useState<WarmupLine[]>([]);
   const [step, setStep] = useState(0); // number of questions answered
   const [draft, setDraft] = useState("");
@@ -218,7 +215,7 @@ function WarmupSession({
     [finished, pushLine, questions, step],
   );
 
-  const stt = useSpeechToText(submitAnswer);
+  const stt = useMicTranscribe(submitAnswer, "en");
 
   // Surface speech errors in the toast.
   useEffect(() => {
@@ -335,14 +332,14 @@ function WarmupSession({
                     : "Speech isn't available here — type your answer"
                 }
                 aria-label="Answer by voice"
-                disabled={!stt.supported}
+                disabled={!stt.supported || stt.busy}
                 className={`flex-none rounded-full px-3 py-2 text-sm font-semibold disabled:opacity-40 ${
                   stt.listening
                     ? "bg-destructive text-destructive-foreground animate-pulse"
                     : "border border-border hover:bg-muted"
                 }`}
               >
-                {stt.listening ? "■ Stop" : "🎙️"}
+                {stt.busy ? "…" : stt.listening ? "■ Stop" : "🎙️"}
               </button>
               <input
                 value={draft}

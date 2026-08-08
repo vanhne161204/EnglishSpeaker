@@ -76,11 +76,17 @@ class Settings(BaseSettings):
     argos_auto_download: bool = True
 
     # --- Speech-to-Text (transcription, PRD §8.9) ---
+    # "deepgram" uses the Deepgram cloud API (accurate, no server load; needs a key);
     # "whisper" uses offline faster-whisper (open-source, no LLM); "stub" returns a
-    # labelled placeholder so the demo runs without the model installed.
+    # labelled placeholder so the demo runs with zero setup.
     stt_provider: str = "whisper"
     # faster-whisper model size (tiny | base | small | medium | large-v3).
     stt_model: str = "base"
+    # Deepgram API key (only used when stt_provider="deepgram"). Get a free one at
+    # deepgram.com. Keep it in .env.prod, never in the repo.
+    deepgram_api_key: str | None = None
+    # Deepgram model — nova-2 is accurate and cheap; "nova-2-general" also works.
+    deepgram_model: str = "nova-2"
 
     # --- CORS ---
     # Exact frontend origins allowed to call the API (credentials-safe — no "*").

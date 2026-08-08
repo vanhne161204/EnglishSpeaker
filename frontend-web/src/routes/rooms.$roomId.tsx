@@ -97,6 +97,10 @@ function RoomLive({
   const [userId, setUserId] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState<string>("You");
   const [joinError, setJoinError] = useState<string | null>(null);
+  // Password-protected rooms: gate the join behind a prompt (the owner is exempt).
+  const [roomPassword, setRoomPassword] = useState<string | null>(null);
+  const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [lines, setLines] = useState<ChatLine[]>([]);
   const [present, setPresent] = useState<PresenceMember[]>([]);
@@ -179,7 +183,18 @@ function RoomLive({
         // In incognito the alias is set when the user confirms the setup modal, so
         // the real profile name is never used for the room.
         if (!isIncognito) setDisplayName(user.display_name);
-        await joinRoom(room.id, { user_id: user.id });
+        // Locked room: ask for the password before joining (the owner is exempt).
+        const isOwnerUser = room.owner_id === user.id;
+        if (room.has_password && !isOwnerUser && roomPassword === null) {
+          setShowPasswordPrompt(true);
+          return;
+        }
+        await joinRoom(room.id, {
+          user_id: user.id,
+          password: roomPassword ?? undefined,
+        });
+        if (cancelled) return;
+        setShowPasswordPrompt(false);
         const history = await listMessages(room.id);
         if (cancelled) return;
         setLines(
@@ -192,19 +207,35 @@ function RoomLive({
           })),
         );
       } catch (err) {
-        if (!cancelled) setJoinError((err as Error).message);
+        if (cancelled) return;
+        const e = err as { code?: string; message: string };
+        // Wrong/missing room password → re-open the prompt with an error.
+        if (e.code === "room_password") {
+          setRoomPassword(null);
+          setPasswordError("Incorrect password. Try again.");
+          setShowPasswordPrompt(true);
+        } else {
+          setJoinError(e.message);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [room.id, isIncognito]);
+  }, [room.id, isIncognito, roomPassword, room.has_password, room.owner_id]);
+
+  // Adopt the password the user typed, then let the join effect retry with it.
+  const confirmPassword = useCallback((pw: string) => {
+    setPasswordError(null);
+    setRoomPassword(pw);
+  }, []);
 
   // 2) Open the live chat WebSocket once we have an identity — and, for incognito,
   // once the alias has been chosen so the real name is never sent.
   useEffect(() => {
     if (!userId) return;
     if (isIncognito && showIncognitoSetup) return;
+    if (showPasswordPrompt) return; // wait until the room password is accepted
     const ws = new WebSocket(roomSocketUrl(room.id, userId, displayName));
     socketRef.current = ws;
     ws.onopen = () => setConnected(true);
@@ -293,6 +324,7 @@ function RoomLive({
     displayName,
     isIncognito,
     showIncognitoSetup,
+    showPasswordPrompt,
     flashNotice,
     leaveCall,
     navigate,
@@ -358,6 +390,10 @@ function RoomLive({
   return (
     <section className="container-page py-6 lg:py-8">
       {showIncognitoSetup && <IncognitoSetupModal onConfirm={confirmIncognito} />}
+
+      {showPasswordPrompt && (
+        <RoomPasswordModal onConfirm={confirmPassword} error={passwordError} />
+      )}
 
       {isIncognito && !showIncognitoSetup && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-2 text-xs">
@@ -874,6 +910,58 @@ function TopicDetailCard({
 }
 
 /* ---------- Incognito setup (display alias + voice filter, PRD §7.2) ---------- */
+
+/** Prompt shown when joining a password-protected room (PRD §8.3). */
+function RoomPasswordModal({
+  onConfirm,
+  error,
+}: {
+  onConfirm: (password: string) => void;
+  error: string | null;
+}) {
+  const [pw, setPw] = useState("");
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-sm rounded-4xl border border-border bg-card p-6 sm:p-8">
+        <h2 className="text-xl text-ink">🔒 This room is locked</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Enter the room password to join.</p>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (pw) onConfirm(pw);
+          }}
+          className="mt-5 space-y-3"
+        >
+          <input
+            value={pw}
+            onChange={(e) => setPw(e.target.value)}
+            type="password"
+            autoFocus
+            autoComplete="off"
+            placeholder="Room password"
+            className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:border-primary"
+          />
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={!pw}
+              className="flex-1 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+            >
+              Join
+            </button>
+            <Link
+              to="/rooms"
+              className="rounded-full border border-border bg-background px-5 py-3 text-sm font-semibold text-foreground hover:bg-muted"
+            >
+              Back
+            </Link>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 function IncognitoSetupModal({
   onConfirm,

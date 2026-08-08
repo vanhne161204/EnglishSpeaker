@@ -56,7 +56,9 @@ async def join_room(
     payload: JoinRequest,
     service: RoomService = Depends(get_room_service),
 ) -> Room:
-    return await service.join_room(room_id, payload.user_id, payload.display_name)
+    return await service.join_room(
+        room_id, payload.user_id, payload.display_name, payload.password
+    )
 
 
 @router.post("/{room_id}/leave", response_model=RoomRead, summary="Leave a room")

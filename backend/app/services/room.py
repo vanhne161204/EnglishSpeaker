@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
+from app.core.security import hash_password, verify_password
 from app.models.enums import ConversationMode, RoomKind
 from app.models.participant import RoomParticipant
 from app.models.room import Room
@@ -56,6 +57,8 @@ class RoomService:
             capacity=capacity,
             participant_count=0,
             owner_id=payload.owner_id,
+            # Store only a hash; a public room leaves this NULL.
+            password_hash=hash_password(payload.password) if payload.password else None,
         )
         return await self.rooms.add(room)
 
@@ -64,6 +67,7 @@ class RoomService:
         room_id: uuid.UUID,
         user_id: uuid.UUID,
         display_name: str | None = None,
+        password: str | None = None,
     ) -> Room:
         room = await self.get_room(room_id)
 
@@ -75,10 +79,19 @@ class RoomService:
         if user is None:
             raise NotFoundError("User not found")
 
-        # Joining is idempotent — a user already in the room just stays.
+        # Joining is idempotent — a user already in the room just stays (and does
+        # not need to re-enter the password).
         existing = await self.participants.get_active(room_id, user_id)
         if existing is not None:
             return room
+
+        # Password-protected rooms require the correct password to join. The owner
+        # (who set it) is exempt. The same error covers missing and wrong passwords.
+        if room.password_hash is not None and user_id != room.owner_id:
+            if not password or not verify_password(password, room.password_hash):
+                raise ForbiddenError(
+                    "This room requires the correct password to join.", code="room_password"
+                )
 
         if room.participant_count >= room.capacity:
             raise ConflictError("Room is full", code="room_full")

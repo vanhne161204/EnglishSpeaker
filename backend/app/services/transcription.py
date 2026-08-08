@@ -26,7 +26,14 @@ class TranscriptionService:
             return TranscriptionResult(text="", language=language, provider="noop")
 
         provider = settings.stt_provider.lower()
-        if provider in ("whisper", "faster_whisper", "auto"):
+
+        if provider == "deepgram":
+            result = await _deepgram_transcribe(audio, language)
+            if result is not None:
+                text, detected = result
+                return TranscriptionResult(text=text, language=detected, provider="deepgram")
+
+        elif provider in ("whisper", "faster_whisper", "auto"):
             result = await asyncio.to_thread(_whisper_transcribe, audio, language)
             if result is not None:
                 text, detected = result
@@ -40,6 +47,47 @@ class TranscriptionService:
             language=language,
             provider="stub",
         )
+
+
+async def _deepgram_transcribe(
+    audio: bytes, language: str | None
+) -> tuple[str, str | None] | None:
+    """Transcribe via the Deepgram cloud API, or return ``None`` to fall back.
+
+    Sends the raw audio to Deepgram's pre-recorded endpoint. Accurate and adds no
+    CPU load to the server. Requires ``settings.deepgram_api_key``.
+    """
+    if not settings.deepgram_api_key:
+        logger.warning("STT_PROVIDER=deepgram but DEEPGRAM_API_KEY is not set — falling back.")
+        return None
+
+    import httpx
+
+    params = {
+        "model": settings.deepgram_model,
+        "smart_format": "true",  # punctuation, capitalization, numerals
+        "language": language or "en",
+    }
+    headers = {
+        "Authorization": f"Token {settings.deepgram_api_key}",
+        # Browser MediaRecorder produces WebM/Opus; Deepgram also auto-detects.
+        "Content-Type": "audio/webm",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                "https://api.deepgram.com/v1/listen",
+                params=params,
+                headers=headers,
+                content=audio,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            alt = data["results"]["channels"][0]["alternatives"][0]
+            return alt.get("transcript", "").strip(), language or "en"
+    except Exception as exc:  # noqa: BLE001 — degrade to stub on any API/parse error
+        logger.warning("Deepgram transcription failed: %s", exc)
+        return None
 
 
 # The model is expensive to load, so keep one instance for the process.

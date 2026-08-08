@@ -77,6 +77,8 @@ export type RoomCreate = {
   capacity?: number | null;
   /** The creator's user id; makes them the room owner/host (PRD §8.3). */
   owner_id?: string | null;
+  /** Optional join password. Omit/empty for a public room. */
+  password?: string | null;
 };
 
 export type Room = {
@@ -90,6 +92,8 @@ export type Room = {
   capacity: number;
   participant_count: number;
   owner_id: string | null;
+  /** True if a password is required to join (the password itself is never sent). */
+  has_password: boolean;
   created_at: string;
 };
 

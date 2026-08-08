@@ -18,6 +18,9 @@ class RoomCreate(BaseModel):
     capacity: int | None = Field(default=None, ge=2, le=20)
     # The creator becomes the room owner/host who can moderate it (PRD §8.3).
     owner_id: uuid.UUID | None = None
+    # Optional join password. Omit/empty for a public room; others must supply it
+    # to join (PRD §8.3). Stored only as a hash — see RoomService.create_room.
+    password: str | None = Field(default=None, min_length=1, max_length=72)
 
 
 class RoomRead(BaseModel):
@@ -33,4 +36,6 @@ class RoomRead(BaseModel):
     capacity: int
     participant_count: int
     owner_id: uuid.UUID | None
+    # True if a password is required to join (the hash itself is never exposed).
+    has_password: bool
     created_at: datetime

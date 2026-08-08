@@ -10,6 +10,8 @@ class JoinRequest(BaseModel):
     # Optional override so incognito rooms can show a temporary alias instead of
     # the user's real profile name.
     display_name: str | None = Field(default=None, min_length=1, max_length=80)
+    # Required only for password-protected rooms; ignored for public ones.
+    password: str | None = Field(default=None, max_length=72)
 
 
 class LeaveRequest(BaseModel):

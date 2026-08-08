@@ -30,3 +30,11 @@ class Room(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), default="open", server_default="open")
     capacity: Mapped[int] = mapped_column(Integer, default=4, server_default="4")
     participant_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # Optional join password (PRD §8.3). NULL = public room. Stored as a bcrypt
+    # hash — the raw password is never persisted or returned.
+    password_hash: Mapped[str | None] = mapped_column(String(255), default=None)
+
+    @property
+    def has_password(self) -> bool:
+        """Whether joining this room requires a password (never exposes the hash)."""
+        return self.password_hash is not None

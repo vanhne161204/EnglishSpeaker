@@ -15,7 +15,12 @@ anthropic>=0.40
 httpx>=0.27
 # Multipart parsing for file uploads (Speech-to-Text audio).
 python-multipart>=0.0.9
-# Offline, open-source neural translation (no LLM) — alternative translator engine.
-argostranslate>=1.9
+# NOTE: argostranslate (offline neural translation) is intentionally NOT installed.
+# It pulls in stanza + PyTorch (~7 GB), which bloats the image and won't fit a small
+# instance. The default translator is Google (TRANSLATION_PROVIDER=google), and the
+# translation service imports argostranslate lazily and falls back to a stub if it's
+# absent — so leaving it out is safe. To re-enable offline translation, add
+# `argostranslate>=1.9` here and set TRANSLATION_PROVIDER=argos.
+#
 # Offline, open-source Speech-to-Text (no LLM) — default transcription engine.
 faster-whisper>=1.0

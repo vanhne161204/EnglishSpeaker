@@ -93,8 +93,10 @@ export const getRoom = (id: string) => apiRequest<Room>(`/rooms/${id}`);
 export const createRoom = (body: RoomCreate) =>
   apiRequest<Room>("/rooms", { method: "POST", body });
 
-export const joinRoom = (roomId: string, body: { user_id: string; display_name?: string }) =>
-  apiRequest<Room>(`/rooms/${roomId}/join`, { method: "POST", body });
+export const joinRoom = (
+  roomId: string,
+  body: { user_id: string; display_name?: string; password?: string },
+) => apiRequest<Room>(`/rooms/${roomId}/join`, { method: "POST", body });
 export const leaveRoom = (roomId: string, body: { user_id: string }) =>
   apiRequest<Room>(`/rooms/${roomId}/leave`, { method: "POST", body });
 

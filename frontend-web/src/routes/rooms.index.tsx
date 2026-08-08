@@ -297,6 +297,7 @@ function CreateRoomModal({ topicTitles, onClose }: { topicTitles: string[]; onCl
   const [topic, setTopic] = useState("");
   const [level, setLevel] = useState<(typeof CREATE_LEVELS)[number]>("intermediate");
   const [capacity, setCapacity] = useState(4);
+  const [password, setPassword] = useState("");
 
   const createM = useMutation({
     mutationFn: (body: RoomCreate) => createRoom(body),
@@ -319,6 +320,7 @@ function CreateRoomModal({ topicTitles, onClose }: { topicTitles: string[]; onCl
       level,
       capacity: roomKind === "one_on_one" ? 2 : capacity,
       owner_id: user.id,
+      password: password.trim() || null,
     });
   };
 
@@ -440,6 +442,24 @@ function CreateRoomModal({ topicTitles, onClose }: { topicTitles: string[]; onCl
               />
             </Field>
           )}
+
+          <label className="block">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Password (optional)
+            </span>
+            <input
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              type="password"
+              autoComplete="new-password"
+              maxLength={72}
+              placeholder="Leave blank for a public room"
+              className="mt-1 w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:border-primary"
+            />
+            <span className="mt-1 block text-xs text-muted-foreground">
+              If set, people must enter this password to join. 🔒
+            </span>
+          </label>
 
           {createM.isError && (
             <p className="text-sm text-destructive">{(createM.error as Error).message}</p>

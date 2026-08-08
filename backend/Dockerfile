@@ -12,11 +12,12 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # Pre-download the Speech-to-Text model (PRD §8.9) at build time so the first
 # transcription is instant and works fully offline. Without this, faster-whisper
-# fetches ~145 MB from Hugging Face on the first request, which blocks (and can
+# fetches the model from Hugging Face on the first request, which blocks (and can
 # hang on a slow network) — appearing as a broken mic in live chat. HF_HOME must
-# match at runtime so the baked model is found. Keep "base" in sync with STT_MODEL.
+# match at runtime so the baked model is found. Keep this in sync with STT_MODEL:
+# "tiny" (~75 MB) fits a 2 GB instance; use "base" on 4 GB+.
 ENV HF_HOME=/opt/models
-RUN python -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8')"
+RUN python -c "from faster_whisper import WhisperModel; WhisperModel('tiny', device='cpu', compute_type='int8')"
 
 COPY . .
 
