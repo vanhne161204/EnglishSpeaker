@@ -6,7 +6,7 @@
 
 services:
   api:
-    image: ghcr.io/vanhhhh04/englishtalker-api:latest
+    image: ghcr.io/vanhne161204/englishtalker-api:latest
     env_file: .env.prod
     expose: ["8000"] # internal only — reached by Caddy, never published to the host
     depends_on:
