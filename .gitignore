@@ -26,3 +26,6 @@ __pycache__/
 frontend-web-design/
 
 # See backend/.gitignore and frontend/.gitignore for stack-specific rules.
+
+# Personal scratch notes — never commit (may contain secrets)
+key.md

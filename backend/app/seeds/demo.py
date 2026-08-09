@@ -1,7 +1,7 @@
 """Idempotent demo seeding so the app shows content on first run."""
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -200,13 +200,19 @@ DEMO_DOCUMENTS: list[dict[str, str]] = [
         "topic_slug": "travel",
         "kind": "vocabulary",
         "title": "Useful travel words",
-        "content": "itinerary, boarding pass, layover, sightseeing, local cuisine, currency exchange",
+        "content": (
+            "itinerary, boarding pass, layover, sightseeing, local cuisine, "
+            "currency exchange"
+        ),
     },
     {
         "topic_slug": "travel",
         "kind": "example",
         "title": "Questions to ask",
-        "content": "Where would you like to travel next? What is the most memorable trip you have taken?",
+        "content": (
+            "Where would you like to travel next? "
+            "What is the most memorable trip you have taken?"
+        ),
     },
     {
         "topic_slug": "job-interview",
@@ -313,7 +319,7 @@ async def _seed_conversation(session: AsyncSession) -> None:
     lines: list[tuple[str, str]] = DEMO_CONVERSATION["lines"]  # type: ignore[assignment]
     # Stagger timestamps so the scripted lines always read in order (SQLite's
     # CURRENT_TIMESTAMP is only second-resolution, so equal times would tie).
-    base = datetime.now(timezone.utc) - timedelta(minutes=len(lines))
+    base = datetime.now(UTC) - timedelta(minutes=len(lines))
     seeded = 0
     for offset, (sender_name, text) in enumerate(lines):
         user = by_name.get(sender_name)

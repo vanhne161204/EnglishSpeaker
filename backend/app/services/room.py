@@ -2,7 +2,7 @@
 
 import uuid
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.core.security import hash_password, verify_password
@@ -43,10 +43,7 @@ class RoomService:
 
     async def create_room(self, payload: RoomCreate) -> Room:
         # A 1-on-1 always seats two; a group defaults to four when unspecified.
-        if payload.kind is RoomKind.one_on_one:
-            capacity = 2
-        else:
-            capacity = payload.capacity or 4
+        capacity = 2 if payload.kind is RoomKind.one_on_one else (payload.capacity or 4)
         room = Room(
             title=payload.title.strip(),
             mode=payload.mode.value,
@@ -87,11 +84,14 @@ class RoomService:
 
         # Password-protected rooms require the correct password to join. The owner
         # (who set it) is exempt. The same error covers missing and wrong passwords.
-        if room.password_hash is not None and user_id != room.owner_id:
-            if not password or not verify_password(password, room.password_hash):
-                raise ForbiddenError(
-                    "This room requires the correct password to join.", code="room_password"
-                )
+        if (
+            room.password_hash is not None
+            and user_id != room.owner_id
+            and (not password or not verify_password(password, room.password_hash))
+        ):
+            raise ForbiddenError(
+                "This room requires the correct password to join.", code="room_password"
+            )
 
         if room.participant_count >= room.capacity:
             raise ConflictError("Room is full", code="room_full")
@@ -108,7 +108,7 @@ class RoomService:
         room = await self.get_room(room_id)
         participant = await self.participants.get_active(room_id, user_id)
         if participant is not None:
-            participant.left_at = datetime.now(timezone.utc)
+            participant.left_at = datetime.now(UTC)
             room.participant_count = max(0, room.participant_count - 1)
         return room
 
@@ -138,7 +138,7 @@ class RoomService:
         if action is ModerationAction.kick:
             participant = await self.participants.get_active(room_id, target_user_id)
             if participant is not None:
-                participant.left_at = datetime.now(timezone.utc)
+                participant.left_at = datetime.now(UTC)
                 room.participant_count = max(0, room.participant_count - 1)
             moderation.ban(room_id, target_user_id)
         return room

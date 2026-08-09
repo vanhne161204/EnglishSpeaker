@@ -1,12 +1,12 @@
 """Schemas for room owner moderation (PRD §8.3 owner controls)."""
 
 import uuid
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel
 
 
-class ModerationAction(str, Enum):
+class ModerationAction(StrEnum):
     """What the owner wants to do to a member."""
 
     mute = "mute"

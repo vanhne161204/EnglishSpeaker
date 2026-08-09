@@ -2,7 +2,9 @@ import pytest
 from httpx import AsyncClient
 
 
-async def test_transcribe_returns_text(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_transcribe_returns_text(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # Force the stub so the unit test never loads a heavy model or hits audio decoding.
     monkeypatch.setattr("app.core.config.settings.stt_provider", "stub")
     files = {"audio": ("clip.wav", b"\x00\x01\x02\x03", "audio/wav")}

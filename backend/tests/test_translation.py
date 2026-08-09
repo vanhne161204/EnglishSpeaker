@@ -2,7 +2,9 @@ import pytest
 from httpx import AsyncClient
 
 
-async def test_translate_returns_result(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_translate_returns_result(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # Keep this a fast, deterministic unit test of the endpoint contract via the
     # zero-dependency stub. The real offline Argos engine is exercised separately
     # so unit tests never load heavy models or hit the network.

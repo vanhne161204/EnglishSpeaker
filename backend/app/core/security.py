@@ -14,7 +14,7 @@ multi-byte characters, where 72 chars can exceed 72 bytes).
 """
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import bcrypt
@@ -52,7 +52,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 def create_access_token(user_id: uuid.UUID | str, is_admin: bool) -> str:
     """Create a signed, expiring session token for a user."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expire = now + timedelta(minutes=settings.access_token_expire_minutes)
     payload = {
         "sub": str(user_id),  # subject = the user's id

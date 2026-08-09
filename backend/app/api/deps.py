@@ -128,8 +128,8 @@ async def get_current_user(
         raise NotAuthenticatedError("Invalid or expired session — sign in again.")
     try:
         user_id = uuid.UUID(str(claims["sub"]))
-    except ValueError:
-        raise NotAuthenticatedError("Invalid session — sign in again.")
+    except ValueError as err:
+        raise NotAuthenticatedError("Invalid session — sign in again.") from err
     user = await UserRepository(session).get(user_id)
     if user is None:
         raise NotAuthenticatedError("Session no longer valid — sign in again.")

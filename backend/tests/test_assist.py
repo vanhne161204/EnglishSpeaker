@@ -35,7 +35,12 @@ async def test_improve_accepts_topic_for_grounding(client: AsyncClient) -> None:
     topic = (await client.post("/api/v1/topics", json={"slug": "travel", "title": "Travel"})).json()
     await client.post(
         "/api/v1/documents",
-        json={"topic_id": topic["id"], "kind": "vocabulary", "title": "Words", "content": "layover"},
+        json={
+            "topic_id": topic["id"],
+            "kind": "vocabulary",
+            "title": "Words",
+            "content": "layover",
+        },
     )
     resp = await client.post(
         "/api/v1/assist",
