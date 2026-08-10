@@ -8,10 +8,10 @@ async def _make_topic(client: AsyncClient, slug: str = "travel-test") -> str:
     return resp.json()["id"]
 
 
-async def test_document_crud(client: AsyncClient) -> None:
-    topic_id = await _make_topic(client)
+async def test_document_crud(admin_client: AsyncClient) -> None:
+    topic_id = await _make_topic(admin_client)
 
-    created = await client.post(
+    created = await admin_client.post(
         "/api/v1/documents",
         json={
             "topic_id": topic_id,
@@ -24,43 +24,49 @@ async def test_document_crud(client: AsyncClient) -> None:
     doc = created.json()
     assert doc["kind"] == "vocabulary" and doc["topic_id"] == topic_id
 
-    listed = await client.get("/api/v1/documents", params={"topic_id": topic_id})
+    listed = await admin_client.get("/api/v1/documents", params={"topic_id": topic_id})
     assert listed.status_code == 200
     assert any(d["id"] == doc["id"] for d in listed.json())
 
-    got = await client.get(f"/api/v1/documents/{doc['id']}")
+    got = await admin_client.get(f"/api/v1/documents/{doc['id']}")
     assert got.status_code == 200 and got.json()["title"] == "Words"
 
-    updated = await client.patch(f"/api/v1/documents/{doc['id']}", json={"title": "Travel words"})
+    updated = await admin_client.patch(
+        f"/api/v1/documents/{doc['id']}", json={"title": "Travel words"}
+    )
     assert updated.status_code == 200 and updated.json()["title"] == "Travel words"
 
-    deleted = await client.delete(f"/api/v1/documents/{doc['id']}")
+    deleted = await admin_client.delete(f"/api/v1/documents/{doc['id']}")
     assert deleted.status_code == 204
-    assert (await client.get(f"/api/v1/documents/{doc['id']}")).status_code == 404
+    assert (await admin_client.get(f"/api/v1/documents/{doc['id']}")).status_code == 404
 
 
-async def test_create_document_unknown_topic_returns_404(client: AsyncClient) -> None:
-    resp = await client.post(
+async def test_create_document_unknown_topic_returns_404(admin_client: AsyncClient) -> None:
+    resp = await admin_client.post(
         "/api/v1/documents",
         json={"topic_id": str(uuid.uuid4()), "title": "x", "content": "y"},
     )
     assert resp.status_code == 404
 
 
-async def test_document_requires_title_and_content(client: AsyncClient) -> None:
-    topic_id = await _make_topic(client, slug="food-test")
-    resp = await client.post(
+async def test_document_requires_title_and_content(admin_client: AsyncClient) -> None:
+    topic_id = await _make_topic(admin_client, slug="food-test")
+    resp = await admin_client.post(
         "/api/v1/documents",
         json={"topic_id": topic_id, "title": "", "content": "y"},
     )
     assert resp.status_code == 422
 
 
-async def test_list_documents_filters_by_topic(client: AsyncClient) -> None:
-    t1 = await _make_topic(client, slug="t1")
-    t2 = await _make_topic(client, slug="t2")
-    await client.post("/api/v1/documents", json={"topic_id": t1, "title": "A", "content": "a"})
-    await client.post("/api/v1/documents", json={"topic_id": t2, "title": "B", "content": "b"})
+async def test_list_documents_filters_by_topic(admin_client: AsyncClient) -> None:
+    t1 = await _make_topic(admin_client, slug="t1")
+    t2 = await _make_topic(admin_client, slug="t2")
+    await admin_client.post(
+        "/api/v1/documents", json={"topic_id": t1, "title": "A", "content": "a"}
+    )
+    await admin_client.post(
+        "/api/v1/documents", json={"topic_id": t2, "title": "B", "content": "b"}
+    )
 
-    only_t1 = (await client.get("/api/v1/documents", params={"topic_id": t1})).json()
+    only_t1 = (await admin_client.get("/api/v1/documents", params={"topic_id": t1})).json()
     assert len(only_t1) == 1 and only_t1[0]["title"] == "A"
