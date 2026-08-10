@@ -5,11 +5,11 @@ The marketing + demo website for EnglishTalker. Built with **TanStack Start**
 
 It sits beside the other apps in the monorepo:
 
-| Folder         | App                                            |
-| -------------- | ---------------------------------------------- |
-| `frontend-web` | This web app (TanStack Start)                  |
-| `frontend`     | Mobile app (React Native / Expo)               |
-| `backend`      | API (FastAPI)                                  |
+| Folder         | App                              |
+| -------------- | -------------------------------- |
+| `frontend-web` | This web app (TanStack Start)    |
+| `frontend`     | Mobile app (React Native / Expo) |
+| `backend`      | API (FastAPI)                    |
 
 ## Getting started
 
@@ -29,20 +29,20 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
 ### Scripts
 
-| Command             | Purpose                                  |
-| ------------------- | ---------------------------------------- |
-| `npm run dev`       | Vite dev server (HMR)                    |
-| `npm run build`     | Production build (client + SSR)          |
-| `npm run preview`   | Preview the production build             |
-| `npm run lint`      | ESLint                                   |
+| Command           | Purpose                         |
+| ----------------- | ------------------------------- |
+| `npm run dev`     | Vite dev server (HMR)           |
+| `npm run build`   | Production build (client + SSR) |
+| `npm run preview` | Preview the production build    |
+| `npm run lint`    | ESLint                          |
 
 ## Configuration
 
 Environment is read from `.env.local` (gitignored). See `.env.example`.
 
-| Variable             | Default                          | Description                          |
-| -------------------- | -------------------------------- | ------------------------------------ |
-| `VITE_API_BASE_URL`  | `http://127.0.0.1:8000/api/v1`   | Backend REST base (WS base derived). |
+| Variable            | Default                        | Description                          |
+| ------------------- | ------------------------------ | ------------------------------------ |
+| `VITE_API_BASE_URL` | `http://127.0.0.1:8000/api/v1` | Backend REST base (WS base derived). |
 
 ## Backend API integration
 

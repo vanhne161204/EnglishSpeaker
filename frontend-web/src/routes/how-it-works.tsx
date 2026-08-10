@@ -4,9 +4,16 @@ export const Route = createFileRoute("/how-it-works")({
   head: () => ({
     meta: [
       { title: "How it works — EnglishTalker" },
-      { name: "description", content: "From picking a topic to your first sentence, here's how a session on EnglishTalker actually flows." },
+      {
+        name: "description",
+        content:
+          "From picking a topic to your first sentence, here's how a session on EnglishTalker actually flows.",
+      },
       { property: "og:title", content: "How it works — EnglishTalker" },
-      { property: "og:description", content: "A 5-step walkthrough of a typical EnglishTalker session." },
+      {
+        property: "og:description",
+        content: "A 5-step walkthrough of a typical EnglishTalker session.",
+      },
       { property: "og:url", content: "/how-it-works" },
     ],
     links: [{ rel: "canonical", href: "/how-it-works" }],
@@ -47,14 +54,22 @@ function HowPage() {
     <>
       <section className="container-page pt-16 pb-10 text-center">
         <span className="chip">How it works</span>
-        <h1 className="mt-5 text-5xl sm:text-6xl text-ink">From app icon to first sentence in <span className="italic text-primary">60 seconds.</span></h1>
-        <p className="mt-5 max-w-2xl mx-auto text-muted-foreground leading-relaxed">A typical session is five short steps. Here's exactly what happens.</p>
+        <h1 className="mt-5 text-5xl sm:text-6xl text-ink">
+          From app icon to first sentence in{" "}
+          <span className="italic text-primary">60 seconds.</span>
+        </h1>
+        <p className="mt-5 max-w-2xl mx-auto text-muted-foreground leading-relaxed">
+          A typical session is five short steps. Here's exactly what happens.
+        </p>
       </section>
 
       <section className="container-page py-12">
         <ol className="space-y-5">
           {STEPS.map((s) => (
-            <li key={s.n} className="rounded-4xl border border-border bg-card p-8 lg:p-10 grid lg:grid-cols-12 gap-6 items-start">
+            <li
+              key={s.n}
+              className="rounded-4xl border border-border bg-card p-8 lg:p-10 grid lg:grid-cols-12 gap-6 items-start"
+            >
               <div className="lg:col-span-3">
                 <div className="font-display text-6xl text-primary leading-none">{s.n}</div>
               </div>
@@ -70,8 +85,15 @@ function HowPage() {
       <section className="container-page py-16">
         <div className="rounded-4xl bg-secondary text-secondary-foreground p-12 text-center">
           <h2 className="text-4xl">That's it. Now go talk.</h2>
-          <p className="mt-3 text-secondary-foreground/80">Free forever. No card required to start.</p>
-          <Link to="/pricing" className="mt-6 inline-flex rounded-full bg-primary px-6 py-3.5 text-sm font-semibold text-primary-foreground">Start free</Link>
+          <p className="mt-3 text-secondary-foreground/80">
+            Free forever. No card required to start.
+          </p>
+          <Link
+            to="/pricing"
+            className="mt-6 inline-flex rounded-full bg-primary px-6 py-3.5 text-sm font-semibold text-primary-foreground"
+          >
+            Start free
+          </Link>
         </div>
       </section>
     </>

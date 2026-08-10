@@ -4,9 +4,16 @@ export const Route = createFileRoute("/features")({
   head: () => ({
     meta: [
       { title: "Features — EnglishTalker" },
-      { name: "description", content: "Rooms, matches, AI coach, sentence notes, in-room translator, speech-to-text, incognito mode — everything EnglishTalker offers." },
+      {
+        name: "description",
+        content:
+          "Rooms, matches, AI coach, sentence notes, in-room translator, speech-to-text, incognito mode — everything EnglishTalker offers.",
+      },
       { property: "og:title", content: "Features — EnglishTalker" },
-      { property: "og:description", content: "The full toolkit for daily English speaking practice." },
+      {
+        property: "og:description",
+        content: "The full toolkit for daily English speaking practice.",
+      },
       { property: "og:url", content: "/features" },
     ],
     links: [{ rel: "canonical", href: "/features" }],
@@ -127,21 +134,32 @@ function FeaturesPage() {
     <>
       <section className="container-page pt-16 pb-10 text-center">
         <span className="chip">Features</span>
-        <h1 className="mt-5 text-5xl sm:text-6xl text-ink">Everything that helps you <span className="italic text-primary">actually speak.</span></h1>
-        <p className="mt-5 max-w-2xl mx-auto text-muted-foreground leading-relaxed">A full toolkit built around one idea: lower the fear, raise the practice. Here's every feature in EnglishTalker.</p>
+        <h1 className="mt-5 text-5xl sm:text-6xl text-ink">
+          Everything that helps you <span className="italic text-primary">actually speak.</span>
+        </h1>
+        <p className="mt-5 max-w-2xl mx-auto text-muted-foreground leading-relaxed">
+          A full toolkit built around one idea: lower the fear, raise the practice. Here's every
+          feature in EnglishTalker.
+        </p>
       </section>
 
       <section className="container-page pb-10">
         <div className="flex flex-wrap justify-center gap-2">
           {SECTIONS.map((s) => (
-            <a key={s.id} href={`#${s.id}`} className="chip hover:bg-muted">{s.eyebrow}</a>
+            <a key={s.id} href={`#${s.id}`} className="chip hover:bg-muted">
+              {s.eyebrow}
+            </a>
           ))}
         </div>
       </section>
 
       <section className="container-page py-10 space-y-6">
         {SECTIONS.map((s, i) => (
-          <article key={s.id} id={s.id} className={`rounded-4xl border border-border p-8 lg:p-12 grid lg:grid-cols-12 gap-8 ${i % 2 === 0 ? "bg-card" : "bg-cream"}`}>
+          <article
+            key={s.id}
+            id={s.id}
+            className={`rounded-4xl border border-border p-8 lg:p-12 grid lg:grid-cols-12 gap-8 ${i % 2 === 0 ? "bg-card" : "bg-cream"}`}
+          >
             <div className="lg:col-span-5">
               <span className="chip">{s.eyebrow}</span>
               <h2 className="mt-4 text-4xl text-ink">{s.title}</h2>
@@ -151,7 +169,15 @@ function FeaturesPage() {
               <ul className="mt-6 space-y-3">
                 {s.bullets.map((b) => (
                   <li key={b} className="flex gap-3 text-sm">
-                    <svg className="mt-0.5 h-5 w-5 flex-none text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 13l4 4L19 7"/></svg>
+                    <svg
+                      className="mt-0.5 h-5 w-5 flex-none text-primary"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                    >
+                      <path d="M5 13l4 4L19 7" />
+                    </svg>
                     {b}
                   </li>
                 ))}
@@ -163,7 +189,12 @@ function FeaturesPage() {
 
       <section className="container-page py-16 text-center">
         <h2 className="text-4xl text-ink">Ready to try it?</h2>
-        <Link to="/pricing" className="mt-6 inline-flex rounded-full bg-primary px-6 py-3.5 text-sm font-semibold text-primary-foreground hover:opacity-90">Start free</Link>
+        <Link
+          to="/pricing"
+          className="mt-6 inline-flex rounded-full bg-primary px-6 py-3.5 text-sm font-semibold text-primary-foreground hover:opacity-90"
+        >
+          Start free
+        </Link>
       </section>
     </>
   );
