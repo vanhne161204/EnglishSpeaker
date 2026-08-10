@@ -86,3 +86,5 @@ and Speech-to-Text capture UI.
 
 This project is connected to [Lovable](https://lovable.dev) — see `AGENTS.md`.
 Avoid rewriting published git history so the Lovable sync stays intact.
+
+<!-- deploy check: verifying Cloudflare is connected to vanhne161204/EnglishSpeaker (2026-08-10) -->
