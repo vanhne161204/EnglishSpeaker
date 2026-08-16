@@ -3,17 +3,35 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useIdentity } from "@/lib/identity";
 import {
-  createDocument,
+  ApiError,
+  createAnswerTemplate,
+  createCategory,
+  createDoc,
+  createDocItem,
+  createQuestion,
+  createSection,
   createTopic,
-  deleteDocument,
+  deleteAnswerTemplate,
+  deleteCategory,
+  deleteDoc,
+  deleteDocItem,
+  deleteQuestion,
+  deleteSection,
   deleteTopic,
-  listDocuments,
+  getTopicDoc,
+  listCategories,
   listTopics,
-  updateDocument,
+  updateCategory,
+  updateDoc,
+  updateSection,
   updateTopic,
-  type DocumentKind,
+  type Category,
+  type ContentStatus,
+  type Doc,
+  type DocSection,
+  type DocSectionType,
+  type Question,
   type Topic,
-  type TopicDocument,
 } from "@/lib/api";
 import { levelLabel, LEVELS } from "@/lib/presentation";
 import { ErrorState } from "./topics.index";
@@ -22,25 +40,30 @@ export const Route = createFileRoute("/admin")({
   head: () => ({
     meta: [
       { title: "Admin — EnglishTalker" },
-      { name: "description", content: "Manage topics and learning content." },
+      { name: "description", content: "Manage categories, topics, and learning content." },
       { name: "robots", content: "noindex" },
     ],
   }),
   component: AdminPage,
 });
 
-const DOC_KINDS: DocumentKind[] = [
-  "explanation",
-  "example",
-  "vocabulary",
-  "mistake",
-  "tip",
-  "sample_answer",
+const TABS = ["categories", "topics", "documentation"] as const;
+type Tab = (typeof TABS)[number];
+
+/** Section types, with a plain-English hint about what each one holds (PRD §8.2). */
+const SECTION_TYPES: { readonly type: DocSectionType; readonly hint: string }[] = [
+  { type: "vocabulary", hint: "Single words, with meaning and example" },
+  { type: "phrases", hint: "Ready-made phrases the learner can copy" },
+  { type: "questions", hint: "Conversation questions, each with sample answers" },
+  { type: "tips", hint: "Free-text speaking advice" },
+  { type: "text", hint: "Anything else — explanations, common mistakes" },
 ];
+
+const STATUSES: readonly ContentStatus[] = ["draft", "published", "archived"];
 
 function AdminPage() {
   const identity = useIdentity();
-  const [tab, setTab] = useState<"topics" | "documents">("topics");
+  const [tab, setTab] = useState<Tab>("topics");
 
   // Authorization gate: only admins may manage content. The backend also
   // enforces this (require_admin), so this is the friendly first line, not the
@@ -55,11 +78,12 @@ function AdminPage() {
         <span className="chip">Admin</span>
         <h1 className="mt-4 text-4xl sm:text-5xl text-ink">Content management</h1>
         <p className="mt-3 max-w-2xl text-muted-foreground">
-          Create the topics learners practice, and add trusted learning content the AI coach uses to
-          ground its suggestions (PRD §8.1, §8.2).
+          Group topics into categories, create the topics learners practice, and write each topic's
+          documentation — the vocabulary, questions, and sample answers a learner leans on, and the
+          trusted content the AI coach grounds its suggestions in (PRD §8.1, §8.2).
         </p>
         <div className="mt-6 inline-flex rounded-full border border-border bg-card p-1">
-          {(["topics", "documents"] as const).map((t) => (
+          {TABS.map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -72,7 +96,9 @@ function AdminPage() {
       </section>
 
       <section className="container-page py-6">
-        {tab === "topics" ? <TopicsManager /> : <DocumentsManager />}
+        {tab === "categories" && <CategoriesManager />}
+        {tab === "topics" && <TopicsManager />}
+        {tab === "documentation" && <DocManager />}
       </section>
     </>
   );
@@ -101,8 +127,6 @@ function AdminForbidden({ loggedIn }: { loggedIn: boolean }) {
   );
 }
 
-/* ---------------- Topics ---------------- */
-
 function slugify(s: string): string {
   return s
     .toLowerCase()
@@ -111,26 +135,187 @@ function slugify(s: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+/* ---------------- Categories ---------------- */
+
+function CategoriesManager() {
+  const qc = useQueryClient();
+  const categoriesQ = useQuery({ queryKey: ["categories"], queryFn: () => listCategories() });
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ["categories"] });
+    // Topics carry `category_id`, so their cached copies can go stale too.
+    void qc.invalidateQueries({ queryKey: ["topics"] });
+  };
+
+  const createM = useMutation({ mutationFn: createCategory, onSuccess: invalidate });
+  const deleteM = useMutation({ mutationFn: deleteCategory, onSuccess: invalidate });
+  const updateM = useMutation({
+    mutationFn: (v: { id: string; name: string; description: string | null; sort_order: number }) =>
+      updateCategory(v.id, {
+        name: v.name,
+        description: v.description,
+        sort_order: v.sort_order,
+      }),
+    onSuccess: invalidate,
+  });
+
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+
+  return (
+    <div className="grid lg:grid-cols-12 gap-8 items-start">
+      <div className="lg:col-span-5">
+        <div className="sticky top-24 rounded-4xl border border-border bg-card p-6">
+          <h3 className="text-lg text-ink">New category</h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            A shelf for topics, like “Daily Life” or “Work”.
+          </p>
+          <div className="mt-4 space-y-3">
+            <LabeledInput label="Name" value={name} onChange={setName} placeholder="Daily Life" />
+            <SlugPreview title={name} />
+            <LabeledTextarea
+              label="Description"
+              value={description}
+              onChange={setDescription}
+              rows={3}
+              placeholder="What kind of topics live here…"
+            />
+          </div>
+          {createM.isError && (
+            <p className="mt-3 text-sm text-destructive">{(createM.error as Error).message}</p>
+          )}
+          <button
+            disabled={!name.trim() || createM.isPending}
+            onClick={() =>
+              createM.mutate(
+                {
+                  slug: slugify(name),
+                  name: name.trim(),
+                  description: description.trim() || null,
+                  sort_order: categoriesQ.data?.length ?? 0,
+                },
+                {
+                  onSuccess: () => {
+                    setName("");
+                    setDescription("");
+                  },
+                },
+              )
+            }
+            className="mt-4 w-full rounded-full bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+          >
+            {createM.isPending ? "Creating…" : "Create category"}
+          </button>
+        </div>
+      </div>
+
+      <div className="lg:col-span-7 space-y-3">
+        {categoriesQ.isLoading && <SkeletonRow />}
+        {categoriesQ.isError && (
+          <ErrorState
+            message={(categoriesQ.error as Error)?.message ?? "Could not load categories"}
+            onRetry={() => void categoriesQ.refetch()}
+          />
+        )}
+        {categoriesQ.isSuccess && (categoriesQ.data ?? []).length === 0 && (
+          <EmptyCard>No categories yet. Topics without one show under “Other”.</EmptyCard>
+        )}
+        {(categoriesQ.data ?? []).map((c) => (
+          <CategoryRow
+            key={c.id}
+            category={c}
+            onSave={(v) => updateM.mutate({ id: c.id, ...v })}
+            onDelete={() => deleteM.mutate(c.id)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CategoryRow({
+  category,
+  onSave,
+  onDelete,
+}: {
+  category: Category;
+  onSave: (v: { name: string; description: string | null; sort_order: number }) => void;
+  onDelete: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(category.name);
+  const [description, setDescription] = useState(category.description ?? "");
+  const [sortOrder, setSortOrder] = useState(String(category.sort_order));
+
+  return (
+    <div className="rounded-3xl border border-border bg-card p-4">
+      {editing ? (
+        <div className="space-y-2">
+          <LabeledInput label="Name" value={name} onChange={setName} />
+          <LabeledTextarea
+            label="Description"
+            value={description}
+            onChange={setDescription}
+            rows={2}
+          />
+          <LabeledInput label="Sort order" value={sortOrder} onChange={setSortOrder} />
+          <EditActions
+            onSave={() => {
+              onSave({
+                name: name.trim(),
+                description: description.trim() || null,
+                sort_order: Number(sortOrder) || 0,
+              });
+              setEditing(false);
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        </div>
+      ) : (
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h4 className="text-base text-ink font-medium truncate">{category.name}</h4>
+              <Pill>#{category.sort_order}</Pill>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground font-mono">/{category.slug}</p>
+            {category.description && (
+              <p className="mt-1 text-sm text-muted-foreground line-clamp-2">
+                {category.description}
+              </p>
+            )}
+          </div>
+          <RowActions
+            onEdit={() => setEditing(true)}
+            onDelete={onDelete}
+            deleteHint="Topics in it are kept — they just lose their grouping."
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- Topics ---------------- */
+
 function TopicsManager() {
   const qc = useQueryClient();
   const topicsQ = useQuery({ queryKey: ["topics"], queryFn: () => listTopics() });
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["topics"] });
+  const categoriesQ = useQuery({ queryKey: ["categories"], queryFn: () => listCategories() });
+  const categories = categoriesQ.data ?? [];
+  const invalidate = () => void qc.invalidateQueries({ queryKey: ["topics"] });
 
   const createM = useMutation({ mutationFn: createTopic, onSuccess: invalidate });
   const deleteM = useMutation({ mutationFn: deleteTopic, onSuccess: invalidate });
   const updateM = useMutation({
-    mutationFn: (v: {
-      id: string;
-      title: string;
-      description: string | null;
-      level: string | null;
-    }) => updateTopic(v.id, { title: v.title, description: v.description, level: v.level }),
+    mutationFn: (v: { id: string } & TopicFields) => updateTopic(v.id, v),
     onSuccess: invalidate,
   });
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [level, setLevel] = useState<string>("beginner");
+  const [categoryId, setCategoryId] = useState<string>("");
+  const [coverImageUrl, setCoverImageUrl] = useState("");
 
   return (
     <div className="grid lg:grid-cols-12 gap-8 items-start">
@@ -144,43 +329,22 @@ function TopicsManager() {
               onChange={setTitle}
               placeholder="Job Interview"
             />
-            <div>
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                Slug
-              </span>
-              <p className="mt-1 rounded-2xl border border-dashed border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                {title ? slugify(title) : "auto-generated-from-title"}
-              </p>
-            </div>
-            <label className="block">
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                Description
-              </span>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={3}
-                placeholder="What this topic is about…"
-                className="mt-1 w-full rounded-2xl border border-border bg-background p-3 text-sm focus:outline-none focus:border-primary resize-none"
-              />
-            </label>
-            <div>
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                Level
-              </span>
-              <div className="mt-1 flex flex-wrap gap-2">
-                {LEVELS.map((l) => (
-                  <button
-                    key={l}
-                    type="button"
-                    onClick={() => setLevel(l)}
-                    className={`rounded-full px-3 py-1.5 text-xs border ${level === l ? "bg-primary text-primary-foreground border-primary" : "bg-background text-foreground border-border hover:bg-muted"}`}
-                  >
-                    {levelLabel(l)}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <SlugPreview title={title} />
+            <LabeledTextarea
+              label="Description"
+              value={description}
+              onChange={setDescription}
+              rows={3}
+              placeholder="What this topic is about…"
+            />
+            <CategorySelect categories={categories} value={categoryId} onChange={setCategoryId} />
+            <LevelPicker value={level} onChange={setLevel} />
+            <LabeledInput
+              label="Cover image URL"
+              value={coverImageUrl}
+              onChange={setCoverImageUrl}
+              placeholder="https://… (optional)"
+            />
           </div>
           {createM.isError && (
             <p className="mt-3 text-sm text-destructive">{(createM.error as Error).message}</p>
@@ -194,11 +358,15 @@ function TopicsManager() {
                   title: title.trim(),
                   description: description.trim() || null,
                   level,
+                  category_id: categoryId || null,
+                  cover_image_url: coverImageUrl.trim() || null,
+                  sort_order: topicsQ.data?.length ?? 0,
                 },
                 {
                   onSuccess: () => {
                     setTitle("");
                     setDescription("");
+                    setCoverImageUrl("");
                   },
                 },
               )
@@ -211,22 +379,19 @@ function TopicsManager() {
       </div>
 
       <div className="lg:col-span-7 space-y-3">
-        {topicsQ.isLoading && (
-          <div className="h-24 rounded-3xl bg-card border border-border animate-pulse" />
-        )}
+        {topicsQ.isLoading && <SkeletonRow />}
         {topicsQ.isError && (
           <ErrorState
             message={(topicsQ.error as Error)?.message ?? "Could not load topics"}
-            onRetry={() => topicsQ.refetch()}
+            onRetry={() => void topicsQ.refetch()}
           />
         )}
         {(topicsQ.data ?? []).map((t) => (
           <TopicRow
             key={t.id}
             topic={t}
-            onSave={(title2, description2, level2) =>
-              updateM.mutate({ id: t.id, title: title2, description: description2, level: level2 })
-            }
+            categories={categories}
+            onSave={(fields) => updateM.mutate({ id: t.id, ...fields })}
             onDelete={() => deleteM.mutate(t.id)}
           />
         ))}
@@ -235,304 +400,604 @@ function TopicsManager() {
   );
 }
 
+/** The editable slice of a topic — shared by the row's form and its save handler. */
+interface TopicFields {
+  title: string;
+  description: string | null;
+  level: string | null;
+  category_id: string | null;
+  cover_image_url: string | null;
+  sort_order: number;
+}
+
 function TopicRow({
   topic,
+  categories,
   onSave,
   onDelete,
 }: {
   topic: Topic;
-  onSave: (title: string, description: string | null, level: string | null) => void;
+  categories: readonly Category[];
+  onSave: (fields: TopicFields) => void;
   onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(topic.title);
   const [description, setDescription] = useState(topic.description ?? "");
   const [level, setLevel] = useState(topic.level ?? "beginner");
-  const [confirm, setConfirm] = useState(false);
+  const [categoryId, setCategoryId] = useState(topic.category_id ?? "");
+  const [coverImageUrl, setCoverImageUrl] = useState(topic.cover_image_url ?? "");
+  const [sortOrder, setSortOrder] = useState(String(topic.sort_order));
+  const categoryName = categories.find((c) => c.id === topic.category_id)?.name;
 
   return (
     <div className="rounded-3xl border border-border bg-card p-4">
       {editing ? (
         <div className="space-y-2">
           <LabeledInput label="Title" value={title} onChange={setTitle} />
-          <textarea
+          <LabeledTextarea
+            label="Description"
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={setDescription}
             rows={2}
-            className="w-full rounded-2xl border border-border bg-background p-3 text-sm focus:outline-none focus:border-primary resize-none"
           />
-          <div className="flex flex-wrap gap-2">
-            {LEVELS.map((l) => (
-              <button
-                key={l}
-                onClick={() => setLevel(l)}
-                className={`rounded-full px-3 py-1 text-xs border ${level === l ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border"}`}
-              >
-                {levelLabel(l)}
-              </button>
-            ))}
-          </div>
-          <div className="flex justify-end gap-2 pt-1">
-            <button
-              onClick={() => {
-                onSave(title.trim(), description.trim() || null, level);
-                setEditing(false);
-              }}
-              className="rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground"
-            >
-              Save
-            </button>
-            <button
-              onClick={() => setEditing(false)}
-              className="rounded-full border border-border px-4 py-1.5 text-xs font-semibold"
-            >
-              Cancel
-            </button>
-          </div>
+          <CategorySelect categories={categories} value={categoryId} onChange={setCategoryId} />
+          <LevelPicker value={level} onChange={setLevel} />
+          <LabeledInput label="Cover image URL" value={coverImageUrl} onChange={setCoverImageUrl} />
+          <LabeledInput label="Sort order" value={sortOrder} onChange={setSortOrder} />
+          <EditActions
+            onSave={() => {
+              onSave({
+                title: title.trim(),
+                description: description.trim() || null,
+                level,
+                category_id: categoryId || null,
+                cover_image_url: coverImageUrl.trim() || null,
+                sort_order: Number(sortOrder) || 0,
+              });
+              setEditing(false);
+            }}
+            onCancel={() => setEditing(false)}
+          />
         </div>
       ) : (
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h4 className="text-base text-ink font-medium truncate">{topic.title}</h4>
-              <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-                {levelLabel(topic.level)}
-              </span>
+              <Pill>{levelLabel(topic.level)}</Pill>
+              {categoryName && <Pill>{categoryName}</Pill>}
+              <Pill>#{topic.sort_order}</Pill>
             </div>
             <p className="mt-1 text-xs text-muted-foreground font-mono">/{topic.slug}</p>
             {topic.description && (
               <p className="mt-1 text-sm text-muted-foreground line-clamp-2">{topic.description}</p>
             )}
           </div>
-          <div className="flex flex-none gap-2">
-            <button
-              onClick={() => setEditing(true)}
-              className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted"
-            >
-              Edit
-            </button>
-            {confirm ? (
-              <button
-                onClick={onDelete}
-                className="rounded-full bg-destructive px-3 py-1.5 text-xs font-semibold text-destructive-foreground"
-              >
-                Confirm
-              </button>
-            ) : (
-              <button
-                onClick={() => setConfirm(true)}
-                onBlur={() => setConfirm(false)}
-                className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10"
-              >
-                Delete
-              </button>
-            )}
-          </div>
+          <RowActions
+            onEdit={() => setEditing(true)}
+            onDelete={onDelete}
+            deleteHint="Its documentation is deleted too."
+          />
         </div>
       )}
     </div>
   );
 }
 
-/* ---------------- Documents ---------------- */
+/* ---------------- Documentation (PRD §8.2) ---------------- */
 
-function DocumentsManager() {
-  const qc = useQueryClient();
+function DocManager() {
   const topicsQ = useQuery({ queryKey: ["topics"], queryFn: () => listTopics() });
   const topics = topicsQ.data ?? [];
   const [topicId, setTopicId] = useState<string>("");
-  const activeTopic = topicId || topics[0]?.id || "";
+  const activeTopicId = topicId || topics[0]?.id || "";
+  const activeTopic = topics.find((t) => t.id === activeTopicId) ?? null;
 
-  const docsQ = useQuery({
-    queryKey: ["documents", activeTopic],
-    queryFn: () => listDocuments(activeTopic),
-    enabled: !!activeTopic,
-  });
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["documents", activeTopic] });
-
-  const createM = useMutation({ mutationFn: createDocument, onSuccess: invalidate });
-  const deleteM = useMutation({ mutationFn: deleteDocument, onSuccess: invalidate });
-  const updateM = useMutation({
-    mutationFn: (v: { id: string; title: string; content: string; kind: DocumentKind }) =>
-      updateDocument(v.id, { title: v.title, content: v.content, kind: v.kind }),
-    onSuccess: invalidate,
-  });
-
-  const [kind, setKind] = useState<DocumentKind>("explanation");
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
-
+  if (topicsQ.isLoading) return <SkeletonRow />;
   if (topics.length === 0) {
     return (
-      <div className="rounded-4xl border border-dashed border-border bg-card p-10 text-center">
-        <div className="text-4xl">📚</div>
-        <h3 className="mt-3 text-xl text-ink">Create a topic first</h3>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Documents attach to a topic. Add a topic on the Topics tab, then come back.
-        </p>
-      </div>
+      <EmptyCard icon="📚" title="Create a topic first">
+        Documentation belongs to a topic. Add one on the Topics tab, then come back.
+      </EmptyCard>
     );
   }
 
   return (
-    <div className="grid lg:grid-cols-12 gap-8 items-start">
-      <div className="lg:col-span-5">
-        <div className="sticky top-24 rounded-4xl border border-border bg-card p-6">
-          <h3 className="text-lg text-ink">New document</h3>
-          <div className="mt-4 space-y-3">
-            <label className="block">
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                Topic
-              </span>
-              <select
-                value={activeTopic}
-                onChange={(e) => setTopicId(e.target.value)}
-                className="mt-1 w-full rounded-2xl border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:border-primary"
-              >
-                {topics.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.title}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                Kind
-              </span>
-              <select
-                value={kind}
-                onChange={(e) => setKind(e.target.value as DocumentKind)}
-                className="mt-1 w-full rounded-2xl border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:border-primary capitalize"
-              >
-                {DOC_KINDS.map((k) => (
-                  <option key={k} value={k}>
-                    {k.replace("_", " ")}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <LabeledInput
-              label="Title"
-              value={title}
-              onChange={setTitle}
-              placeholder="Useful phrases"
-            />
-            <label className="block">
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                Content
-              </span>
-              <textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                rows={5}
-                placeholder="Example sentences, vocabulary, tips…"
-                className="mt-1 w-full rounded-2xl border border-border bg-background p-3 text-sm focus:outline-none focus:border-primary resize-none"
-              />
-            </label>
-          </div>
-          {createM.isError && (
-            <p className="mt-3 text-sm text-destructive">{(createM.error as Error).message}</p>
-          )}
-          <button
-            disabled={!title.trim() || !content.trim() || createM.isPending}
-            onClick={() =>
-              createM.mutate(
-                { topic_id: activeTopic, kind, title: title.trim(), content: content.trim() },
-                {
-                  onSuccess: () => {
-                    setTitle("");
-                    setContent("");
-                  },
-                },
-              )
-            }
-            className="mt-4 w-full rounded-full bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
-          >
-            {createM.isPending ? "Adding…" : "Add document"}
-          </button>
+    <div className="space-y-6">
+      <label className="block max-w-md">
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Topic</span>
+        <select
+          value={activeTopicId}
+          onChange={(e) => setTopicId(e.target.value)}
+          className="mt-1 w-full rounded-2xl border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:border-primary"
+        >
+          {topics.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.title}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {activeTopic && <DocEditor key={activeTopic.id} topic={activeTopic} />}
+    </div>
+  );
+}
+
+function DocEditor({ topic }: { topic: Topic }) {
+  const qc = useQueryClient();
+  // A topic with no doc yet is the normal starting state, so a 404 is data, not
+  // an error — don't retry it.
+  const docQ = useQuery({
+    queryKey: ["topic-doc", topic.id],
+    queryFn: () => getTopicDoc(topic.id),
+    retry: (count, error) => !isNotFound(error) && count < 2,
+  });
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ["topic-doc", topic.id] });
+    // Warm-up reads questions from published docs, so its feed can go stale.
+    void qc.invalidateQueries({ queryKey: ["questions"] });
+  };
+
+  const createDocM = useMutation({ mutationFn: createDoc, onSuccess: invalidate });
+  const deleteDocM = useMutation({ mutationFn: deleteDoc, onSuccess: invalidate });
+
+  if (docQ.isLoading) return <SkeletonRow />;
+  if (docQ.isError && !isNotFound(docQ.error)) {
+    return (
+      <ErrorState message={(docQ.error as Error).message} onRetry={() => void docQ.refetch()} />
+    );
+  }
+
+  const doc = docQ.data ?? null;
+  if (!doc) {
+    return (
+      <EmptyCard icon="📝" title={`“${topic.title}” has no documentation yet`}>
+        <p>
+          Start it to add vocabulary, phrases, conversation questions, and sample answers. It stays
+          a draft — hidden from learners — until you publish it.
+        </p>
+        {createDocM.isError && (
+          <p className="mt-3 text-sm text-destructive">{(createDocM.error as Error).message}</p>
+        )}
+        <button
+          disabled={createDocM.isPending}
+          onClick={() => createDocM.mutate({ topic_id: topic.id, title: topic.title })}
+          className="mt-5 rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+        >
+          {createDocM.isPending ? "Starting…" : "Start documentation"}
+        </button>
+      </EmptyCard>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <DocHeader doc={doc} onChanged={invalidate} onDelete={() => deleteDocM.mutate(doc.id)} />
+      {doc.sections.map((section) => (
+        <SectionCard key={section.id} section={section} onChanged={invalidate} />
+      ))}
+      <AddSectionForm docId={doc.id} nextOrder={doc.sections.length} onChanged={invalidate} />
+    </div>
+  );
+}
+
+function DocHeader({
+  doc,
+  onChanged,
+  onDelete,
+}: {
+  doc: Doc;
+  onChanged: () => void;
+  onDelete: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(doc.title ?? "");
+  const [intro, setIntro] = useState(doc.intro ?? "");
+  const updateM = useMutation({
+    mutationFn: (v: Parameters<typeof updateDoc>[1]) => updateDoc(doc.id, v),
+    onSuccess: onChanged,
+  });
+
+  return (
+    <div className="rounded-4xl border border-border bg-card p-6">
+      {editing ? (
+        <div className="space-y-2">
+          <LabeledInput label="Title" value={title} onChange={setTitle} />
+          <LabeledTextarea
+            label="Intro"
+            value={intro}
+            onChange={setIntro}
+            rows={2}
+            placeholder="How to use this page…"
+          />
+          <EditActions
+            onSave={() => {
+              updateM.mutate({ title: title.trim() || null, intro: intro.trim() || null });
+              setEditing(false);
+            }}
+            onCancel={() => setEditing(false)}
+          />
         </div>
+      ) : (
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="min-w-0">
+            <h3 className="text-xl text-ink">{doc.title ?? "Untitled documentation"}</h3>
+            {doc.intro && <p className="mt-1 text-sm text-muted-foreground">{doc.intro}</p>}
+            <p className="mt-2 text-xs text-muted-foreground">
+              {doc.sections.length} section{doc.sections.length === 1 ? "" : "s"}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Only a published doc reaches learners and Warm-up (PRD §8.2). */}
+            <select
+              value={doc.status}
+              onChange={(e) => updateM.mutate({ status: e.target.value as ContentStatus })}
+              className="rounded-full border border-border bg-background px-3 py-1.5 text-xs capitalize focus:outline-none focus:border-primary"
+            >
+              {STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+            <RowActions
+              onEdit={() => setEditing(true)}
+              onDelete={onDelete}
+              deleteHint="Every section, item, and question goes with it."
+            />
+          </div>
+        </div>
+      )}
+      {updateM.isError && (
+        <p className="mt-3 text-sm text-destructive">{(updateM.error as Error).message}</p>
+      )}
+    </div>
+  );
+}
+
+function AddSectionForm({
+  docId,
+  nextOrder,
+  onChanged,
+}: {
+  docId: string;
+  nextOrder: number;
+  onChanged: () => void;
+}) {
+  const [type, setType] = useState<DocSectionType>("questions");
+  const [title, setTitle] = useState("");
+  const createM = useMutation({
+    mutationFn: () =>
+      createSection(docId, { type, title: title.trim() || null, sort_order: nextOrder }),
+    onSuccess: () => {
+      setTitle("");
+      onChanged();
+    },
+  });
+  const hint = SECTION_TYPES.find((s) => s.type === type)?.hint;
+
+  return (
+    <div className="rounded-4xl border border-dashed border-border bg-card p-6">
+      <h4 className="text-base text-ink">Add a section</h4>
+      <div className="mt-3 grid sm:grid-cols-2 gap-3">
+        <label className="block">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Type</span>
+          <select
+            value={type}
+            onChange={(e) => setType(e.target.value as DocSectionType)}
+            className="mt-1 w-full rounded-2xl border border-border bg-background px-3 py-2 text-sm capitalize focus:outline-none focus:border-primary"
+          >
+            {SECTION_TYPES.map((s) => (
+              <option key={s.type} value={s.type}>
+                {s.type}
+              </option>
+            ))}
+          </select>
+        </label>
+        <LabeledInput
+          label="Heading"
+          value={title}
+          onChange={setTitle}
+          placeholder="Useful travel words (optional)"
+        />
+      </div>
+      {hint && <p className="mt-2 text-xs text-muted-foreground">{hint}</p>}
+      {createM.isError && (
+        <p className="mt-3 text-sm text-destructive">{(createM.error as Error).message}</p>
+      )}
+      <button
+        disabled={createM.isPending}
+        onClick={() => createM.mutate()}
+        className="mt-4 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+      >
+        {createM.isPending ? "Adding…" : "Add section"}
+      </button>
+    </div>
+  );
+}
+
+function SectionCard({ section, onChanged }: { section: DocSection; onChanged: () => void }) {
+  const deleteM = useMutation({
+    mutationFn: () => deleteSection(section.id),
+    onSuccess: onChanged,
+  });
+  const holdsItems = section.type === "vocabulary" || section.type === "phrases";
+
+  return (
+    <div className="rounded-4xl border border-border bg-card p-6">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Pill>{section.type}</Pill>
+            <h4 className="text-base text-ink font-medium truncate">
+              {section.title ?? "Untitled section"}
+            </h4>
+          </div>
+        </div>
+        <ConfirmDelete
+          onDelete={() => deleteM.mutate()}
+          hint="Everything inside this section is deleted too."
+        />
       </div>
 
-      <div className="lg:col-span-7 space-y-3">
-        {docsQ.isLoading && (
-          <div className="h-24 rounded-3xl bg-card border border-border animate-pulse" />
+      <div className="mt-4">
+        {holdsItems && <ItemsEditor section={section} onChanged={onChanged} />}
+        {section.type === "questions" && (
+          <QuestionsEditor section={section} onChanged={onChanged} />
         )}
-        {docsQ.isError && (
-          <ErrorState
-            message={(docsQ.error as Error)?.message ?? "Could not load documents"}
-            onRetry={() => docsQ.refetch()}
-          />
+        {(section.type === "tips" || section.type === "text") && (
+          <BodyEditor section={section} onChanged={onChanged} />
         )}
-        {docsQ.isSuccess && (docsQ.data ?? []).length === 0 && (
-          <div className="rounded-3xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
-            No documents on this topic yet. Add the first one on the left.
-          </div>
-        )}
-        {(docsQ.data ?? []).map((d) => (
-          <DocumentRow
-            key={d.id}
-            doc={d}
-            onSave={(title2, content2, kind2) =>
-              updateM.mutate({ id: d.id, title: title2, content: content2, kind: kind2 })
-            }
-            onDelete={() => deleteM.mutate(d.id)}
-          />
-        ))}
       </div>
     </div>
   );
 }
 
-function DocumentRow({
-  doc,
-  onSave,
-  onDelete,
-}: {
-  doc: TopicDocument;
-  onSave: (title: string, content: string, kind: DocumentKind) => void;
-  onDelete: () => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [title, setTitle] = useState(doc.title);
-  const [content, setContent] = useState(doc.content);
-  const [kind, setKind] = useState<DocumentKind>(doc.kind);
-  const [confirm, setConfirm] = useState(false);
+/** Free-text body for `tips` and `text` sections. */
+function BodyEditor({ section, onChanged }: { section: DocSection; onChanged: () => void }) {
+  const [body, setBody] = useState(section.body ?? "");
+  const updateM = useMutation({
+    mutationFn: () => updateSection(section.id, { body: body.trim() || null }),
+    onSuccess: onChanged,
+  });
+  const dirty = body !== (section.body ?? "");
 
   return (
-    <div className="rounded-3xl border border-border bg-card p-4">
-      {editing ? (
-        <div className="space-y-2">
-          <LabeledInput label="Title" value={title} onChange={setTitle} />
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            rows={4}
-            className="w-full rounded-2xl border border-border bg-background p-3 text-sm focus:outline-none focus:border-primary resize-none"
-          />
-          <select
-            value={kind}
-            onChange={(e) => setKind(e.target.value as DocumentKind)}
-            className="rounded-full border border-border bg-background px-3 py-1.5 text-xs capitalize"
+    <div>
+      <LabeledTextarea
+        label="Body"
+        value={body}
+        onChange={setBody}
+        rows={4}
+        placeholder="Write the advice or explanation…"
+      />
+      {updateM.isError && (
+        <p className="mt-2 text-sm text-destructive">{(updateM.error as Error).message}</p>
+      )}
+      <button
+        disabled={!dirty || updateM.isPending}
+        onClick={() => updateM.mutate()}
+        className="mt-2 rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50"
+      >
+        {updateM.isPending ? "Saving…" : "Save"}
+      </button>
+    </div>
+  );
+}
+
+/** Vocabulary and phrase items. */
+function ItemsEditor({ section, onChanged }: { section: DocSection; onChanged: () => void }) {
+  const [term, setTerm] = useState("");
+  const [phonetic, setPhonetic] = useState("");
+  const [meaning, setMeaning] = useState("");
+  const [example, setExample] = useState("");
+
+  const createM = useMutation({
+    mutationFn: () =>
+      createDocItem(section.id, {
+        term: term.trim(),
+        phonetic: phonetic.trim() || null,
+        meaning: meaning.trim() || null,
+        example: example.trim() || null,
+        sort_order: section.items.length,
+      }),
+    onSuccess: () => {
+      setTerm("");
+      setPhonetic("");
+      setMeaning("");
+      setExample("");
+      onChanged();
+    },
+  });
+  const deleteM = useMutation({ mutationFn: deleteDocItem, onSuccess: onChanged });
+
+  return (
+    <div className="space-y-3">
+      <ul className="space-y-2">
+        {section.items.map((item) => (
+          <li
+            key={item.id}
+            className="flex items-start justify-between gap-3 rounded-2xl border border-border bg-background px-4 py-3"
           >
-            {DOC_KINDS.map((k) => (
-              <option key={k} value={k}>
-                {k.replace("_", " ")}
-              </option>
-            ))}
-          </select>
-          <div className="flex justify-end gap-2 pt-1">
+            <div className="min-w-0">
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <span className="text-sm font-semibold">{item.term}</span>
+                {item.phonetic && (
+                  <span className="text-xs text-muted-foreground">{item.phonetic}</span>
+                )}
+              </div>
+              {item.meaning && (
+                <p className="mt-0.5 text-xs text-muted-foreground">{item.meaning}</p>
+              )}
+              {item.example && (
+                <p className="mt-0.5 text-xs text-muted-foreground">“{item.example}”</p>
+              )}
+            </div>
+            <ConfirmDelete onDelete={() => deleteM.mutate(item.id)} />
+          </li>
+        ))}
+      </ul>
+
+      <div className="rounded-2xl border border-dashed border-border p-4 space-y-2">
+        <div className="grid sm:grid-cols-2 gap-2">
+          <LabeledInput label="Term" value={term} onChange={setTerm} placeholder="breakfast" />
+          <LabeledInput
+            label="Phonetic"
+            value={phonetic}
+            onChange={setPhonetic}
+            placeholder="/ˈbrekfəst/"
+          />
+        </div>
+        <LabeledInput
+          label="Meaning"
+          value={meaning}
+          onChange={setMeaning}
+          placeholder="the first meal of the day"
+        />
+        <LabeledInput
+          label="Example"
+          value={example}
+          onChange={setExample}
+          placeholder="I have breakfast at seven."
+        />
+        {createM.isError && (
+          <p className="text-sm text-destructive">{(createM.error as Error).message}</p>
+        )}
+        <button
+          disabled={!term.trim() || createM.isPending}
+          onClick={() => createM.mutate()}
+          className="rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50"
+        >
+          {createM.isPending ? "Adding…" : "Add item"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Questions, each with its own answer templates. */
+function QuestionsEditor({ section, onChanged }: { section: DocSection; onChanged: () => void }) {
+  const [text, setText] = useState("");
+  const createM = useMutation({
+    mutationFn: () =>
+      createQuestion({
+        section_id: section.id,
+        text: text.trim(),
+        sort_order: section.questions.length,
+      }),
+    onSuccess: () => {
+      setText("");
+      onChanged();
+    },
+  });
+  const deleteM = useMutation({ mutationFn: deleteQuestion, onSuccess: onChanged });
+
+  return (
+    <div className="space-y-3">
+      <ul className="space-y-2">
+        {section.questions.map((question) => (
+          <li key={question.id} className="rounded-2xl border border-border bg-background p-4">
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-sm font-semibold">{question.text}</p>
+              <ConfirmDelete
+                onDelete={() => deleteM.mutate(question.id)}
+                hint="Its answer templates go too."
+              />
+            </div>
+            <AnswerTemplatesEditor question={question} onChanged={onChanged} />
+          </li>
+        ))}
+      </ul>
+
+      <div className="rounded-2xl border border-dashed border-border p-4 space-y-2">
+        <LabeledInput
+          label="Question"
+          value={text}
+          onChange={setText}
+          placeholder="What is your favourite food?"
+        />
+        {createM.isError && (
+          <p className="text-sm text-destructive">{(createM.error as Error).message}</p>
+        )}
+        <button
+          disabled={!text.trim() || createM.isPending}
+          onClick={() => createM.mutate()}
+          className="rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50"
+        >
+          {createM.isPending ? "Adding…" : "Add question"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AnswerTemplatesEditor({
+  question,
+  onChanged,
+}: {
+  question: Question;
+  onChanged: () => void;
+}) {
+  const [template, setTemplate] = useState("");
+  const [example, setExample] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const createM = useMutation({
+    mutationFn: () =>
+      createAnswerTemplate(question.id, {
+        template: template.trim(),
+        example: example.trim() || null,
+        sort_order: question.answer_templates.length,
+      }),
+    onSuccess: () => {
+      setTemplate("");
+      setExample("");
+      onChanged();
+    },
+  });
+  const deleteM = useMutation({ mutationFn: deleteAnswerTemplate, onSuccess: onChanged });
+
+  return (
+    <div className="mt-2 pl-3 border-l-2 border-border">
+      {question.answer_templates.map((tpl) => (
+        <div key={tpl.id} className="flex items-start justify-between gap-2 py-1">
+          <div className="min-w-0">
+            <p className="text-sm">{tpl.template}</p>
+            {tpl.example && <p className="text-xs text-muted-foreground">e.g. {tpl.example}</p>}
+          </div>
+          <ConfirmDelete onDelete={() => deleteM.mutate(tpl.id)} />
+        </div>
+      ))}
+
+      {open ? (
+        <div className="mt-2 space-y-2">
+          <LabeledInput
+            label="Template"
+            value={template}
+            onChange={setTemplate}
+            placeholder="My favourite food is ___."
+          />
+          <LabeledInput
+            label="Filled example"
+            value={example}
+            onChange={setExample}
+            placeholder="My favourite food is pizza."
+          />
+          {createM.isError && (
+            <p className="text-sm text-destructive">{(createM.error as Error).message}</p>
+          )}
+          <div className="flex gap-2">
             <button
-              onClick={() => {
-                onSave(title.trim(), content.trim(), kind);
-                setEditing(false);
-              }}
-              className="rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground"
+              disabled={!template.trim() || createM.isPending}
+              onClick={() => createM.mutate()}
+              className="rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50"
             >
-              Save
+              {createM.isPending ? "Adding…" : "Add"}
             </button>
             <button
-              onClick={() => setEditing(false)}
+              onClick={() => setOpen(false)}
               className="rounded-full border border-border px-4 py-1.5 text-xs font-semibold"
             >
               Cancel
@@ -540,49 +1005,22 @@ function DocumentRow({
           </div>
         </div>
       ) : (
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h4 className="text-base text-ink font-medium truncate">{doc.title}</h4>
-              <span className="rounded-full bg-secondary/30 px-2 py-0.5 text-[10px] uppercase tracking-wider text-secondary-foreground">
-                {doc.kind.replace("_", " ")}
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground line-clamp-3 whitespace-pre-wrap">
-              {doc.content}
-            </p>
-          </div>
-          <div className="flex flex-none gap-2">
-            <button
-              onClick={() => setEditing(true)}
-              className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted"
-            >
-              Edit
-            </button>
-            {confirm ? (
-              <button
-                onClick={onDelete}
-                className="rounded-full bg-destructive px-3 py-1.5 text-xs font-semibold text-destructive-foreground"
-              >
-                Confirm
-              </button>
-            ) : (
-              <button
-                onClick={() => setConfirm(true)}
-                onBlur={() => setConfirm(false)}
-                className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10"
-              >
-                Delete
-              </button>
-            )}
-          </div>
-        </div>
+        <button
+          onClick={() => setOpen(true)}
+          className="mt-1 text-xs font-semibold text-primary hover:underline"
+        >
+          + Sample answer
+        </button>
       )}
     </div>
   );
 }
 
 /* ---------------- shared ---------------- */
+
+function isNotFound(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
 
 function LabeledInput({
   label,
@@ -605,5 +1043,188 @@ function LabeledInput({
         className="mt-1 w-full rounded-2xl border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:border-primary"
       />
     </label>
+  );
+}
+
+function LabeledTextarea({
+  label,
+  value,
+  onChange,
+  rows,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  rows: number;
+  placeholder?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={rows}
+        placeholder={placeholder}
+        className="mt-1 w-full rounded-2xl border border-border bg-background p-3 text-sm focus:outline-none focus:border-primary resize-none"
+      />
+    </label>
+  );
+}
+
+function SlugPreview({ title }: { title: string }) {
+  return (
+    <div>
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Slug</span>
+      <p className="mt-1 rounded-2xl border border-dashed border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+        {title ? slugify(title) : "auto-generated-from-title"}
+      </p>
+    </div>
+  );
+}
+
+function CategorySelect({
+  categories,
+  value,
+  onChange,
+}: {
+  categories: readonly Category[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Category</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="mt-1 w-full rounded-2xl border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:border-primary"
+      >
+        <option value="">No category (shows under “Other”)</option>
+        {categories.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function LevelPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Level</span>
+      <div className="mt-1 flex flex-wrap gap-2">
+        {LEVELS.map((l) => (
+          <button
+            key={l}
+            type="button"
+            onClick={() => onChange(l)}
+            className={`rounded-full px-3 py-1.5 text-xs border ${value === l ? "bg-primary text-primary-foreground border-primary" : "bg-background text-foreground border-border hover:bg-muted"}`}
+          >
+            {levelLabel(l)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EditActions({ onSave, onCancel }: { onSave: () => void; onCancel: () => void }) {
+  return (
+    <div className="flex justify-end gap-2 pt-1">
+      <button
+        onClick={onSave}
+        className="rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground"
+      >
+        Save
+      </button>
+      <button
+        onClick={onCancel}
+        className="rounded-full border border-border px-4 py-1.5 text-xs font-semibold"
+      >
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+function RowActions({
+  onEdit,
+  onDelete,
+  deleteHint,
+}: {
+  onEdit: () => void;
+  onDelete: () => void;
+  deleteHint?: string;
+}) {
+  return (
+    <div className="flex flex-none gap-2">
+      <button
+        onClick={onEdit}
+        className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted"
+      >
+        Edit
+      </button>
+      <ConfirmDelete onDelete={onDelete} hint={deleteHint} />
+    </div>
+  );
+}
+
+/** Two-step delete: the first click arms it, the second confirms (blur disarms). */
+function ConfirmDelete({ onDelete, hint }: { onDelete: () => void; hint?: string }) {
+  const [armed, setArmed] = useState(false);
+  if (armed) {
+    return (
+      <button
+        onClick={onDelete}
+        onBlur={() => setArmed(false)}
+        title={hint}
+        className="flex-none rounded-full bg-destructive px-3 py-1.5 text-xs font-semibold text-destructive-foreground"
+      >
+        Confirm
+      </button>
+    );
+  }
+  return (
+    <button
+      onClick={() => setArmed(true)}
+      title={hint}
+      className="flex-none rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10"
+    >
+      Delete
+    </button>
+  );
+}
+
+function Pill({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+      {children}
+    </span>
+  );
+}
+
+function SkeletonRow() {
+  return <div className="h-24 rounded-3xl bg-card border border-border animate-pulse" />;
+}
+
+function EmptyCard({
+  icon,
+  title,
+  children,
+}: {
+  icon?: string;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-4xl border border-dashed border-border bg-card p-10 text-center">
+      {icon && <div className="text-4xl">{icon}</div>}
+      {title && <h3 className="mt-3 text-xl text-ink">{title}</h3>}
+      <div className="mt-2 text-sm text-muted-foreground">{children}</div>
+    </div>
   );
 }

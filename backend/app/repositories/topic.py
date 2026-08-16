@@ -13,8 +13,13 @@ class TopicRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def list(self) -> Sequence[Topic]:
-        result = await self.session.execute(select(Topic).order_by(Topic.title))
+    async def list(self, category_id: uuid.UUID | None = None) -> Sequence[Topic]:
+        stmt = select(Topic)
+        if category_id is not None:
+            stmt = stmt.where(Topic.category_id == category_id)
+        # Admins control the order; title breaks ties so the list is deterministic.
+        stmt = stmt.order_by(Topic.sort_order, Topic.title)
+        result = await self.session.execute(stmt)
         return result.scalars().all()
 
     async def get(self, topic_id: uuid.UUID) -> Topic | None:

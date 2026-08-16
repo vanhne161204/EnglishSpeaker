@@ -115,44 +115,96 @@ Examples:
 
 Topics are created and managed by the admin.
 
+### Categories
+
+Topics are grouped into categories so a long list stays easy to scan.
+
+Examples of categories: "Daily Life", "Work", "Travel".
+
+A category has a name, a short description, an icon, and a sort order. A topic
+belongs to at most one category. A topic with no category still works — it simply
+shows under "Other".
+
 The admin should be able to:
 
 - Add a new topic.
 - Edit a topic.
 - Remove a topic.
+- Put a topic in a category.
 - Set topic level, such as beginner, intermediate, or advanced.
-- Add sample questions for each topic.
+- Set a cover image for the topic.
+- Set the order topics appear in.
+- Add, edit, and remove categories.
+- Write the topic's documentation (see 8.2), which holds its questions.
 
 Users should be able to:
 
-- View available topics.
+- View available topics, grouped by category.
 - Choose a topic before joining a room or match.
 - See simple conversation questions for the selected topic.
+
+The questions a user sees come from the topic's documentation (8.2), so questions
+are authored in one place only.
 
 ## 8.2 Documentation Content
 
 Documentation content means learning content added by the admin.
 
-This content can include:
+Each topic has **one documentation page** (its "doc"). The doc is the scaffolding
+a learner leans on before and during a conversation. It is written by the admin
+before anyone speaks, so a nervous user is never staring at a blank room.
 
-- Topic explanations
-- Example sentences
-- Useful vocabulary
-- Common mistakes
-- Speaking tips
-- Sample answers
+### Shape of a doc
 
-The admin adds this content so the AI can give better help.
+A doc has a title, a short intro ("how to use this"), an optional level that
+overrides the topic level, and a status (draft, published, archived). Only a
+published doc is shown to users.
 
-Simple explanation:
+A doc is a list of **sections**, shown in the order the admin sets. A section has
+a type that decides how it is displayed:
+
+| Section type | What it holds | Shown as |
+|---|---|---|
+| `vocabulary` | Single words | Word cards with meaning and example |
+| `phrases` | Ready-made phrases | Phrase cards with meaning and example |
+| `questions` | Conversation questions | A question list, each with sample answers |
+| `tips` | Speaking advice | Free text |
+| `text` | Anything else (explanation, common mistakes) | Free text |
+
+### Items, questions, and answer templates
+
+A `vocabulary` or `phrases` section holds **items**. An item has the term, its
+phonetic spelling (`/ˈbrekfəst/`), its meaning, a translation into the learner's
+own language, an example sentence, and an optional audio clip.
+
+A `questions` section holds **questions**. A question has its text, a translation,
+and an optional audio clip.
+
+Each question can have **answer templates** — a fill-in-the-blank sentence the
+learner can copy, with a filled example next to it:
+
+- Template: `My favourite food is ___.`
+- Example: `My favourite food is pizza.`
+
+This is the heart of the feature. A learner who cannot invent a sentence can still
+speak, because the shape of the sentence is handed to them.
+
+### Why it matters
 
 - The admin gives trusted content to the app.
+- The user reads it before speaking, so they are not starting from nothing.
 - The AI uses this content when helping users.
 - This makes AI suggestions more useful and more related to the topic.
 
 This is called RAG in technical design, but for normal users it means:
 
 The AI looks at trusted learning material before giving suggestions.
+
+### Where questions are used
+
+The questions in a doc's `questions` section are the single source of the
+questions shown in Warm-up Practice (8.12) and in a room's topic panel (8.3).
+There is no separate question list on the topic itself.
 
 ## 8.3 Rooms
 
@@ -567,7 +619,10 @@ Warm-up is a guided, one-person chat. It looks like a chat box:
 
 Warm-up rules:
 
-- Questions come from the chosen topic and match the topic's level when possible.
+- Questions come from the chosen topic's documentation (8.2) — the `questions`
+  sections of its published doc — and match the topic's level when possible.
+- If a question has answer templates, the user can reveal one as a hint before
+  they speak.
 - The user should be able to see the transcript of every answer they gave.
 - The user should be able to save any answer to their sentence notes.
 - If speech is not available or a word is wrong, the user can still type the answer, so the practice never gets stuck.

@@ -33,44 +33,143 @@ Handled domain errors return a consistent envelope:
 ### `GET /health`
 Liveness probe. Returns `{ "status": "ok", "service": ..., "environment": ... }`.
 
-## Topics
+## Categories
 
-### `GET /topics`
-List published conversation topics.
+Themes that group topics (PRD §8.1). Reads are open; writes require an admin.
 
-### `POST /topics`
-Create a topic (admin). `409` if the slug already exists.
+### `GET /categories`
+List categories, ordered by `sort_order` then `name`.
 
-### `GET /topics/{id}` · `PATCH /topics/{id}` · `DELETE /topics/{id}`
-Get, edit (partial: `title`/`description`/`level`/`status`), or delete a topic
-(admin). `PATCH`/`DELETE` return `404` if unknown; `DELETE` → `204`.
-
-## Documents (Documentation Content)
-
-Admin learning content attached to a topic (PRD §8.2): explanations, examples,
-vocabulary, common mistakes, tips, sample answers. Surfaced as a topic's "related
-documents" and usable as trusted content for the AI coach. No admin auth yet.
-
-### `GET /documents?topic_id=`
-List documents, optionally filtered to one topic.
-
-### `POST /documents`
-Create a document. → `201`. `404` if the `topic_id` doesn't exist.
+### `POST /categories`
+Create a category (admin). → `201`. `409` if the slug already exists.
 
 ```json
-{ "topic_id": "…", "kind": "vocabulary", "title": "Useful travel words", "content": "itinerary, layover, …" }
+{ "slug": "daily-life", "name": "Daily Life", "description": "…", "icon_url": null, "sort_order": 0 }
 ```
 
-`kind` ∈ `explanation` · `example` · `vocabulary` · `mistake` · `tip` · `sample_answer`.
+### `GET /categories/{id}` · `PATCH /categories/{id}` · `DELETE /categories/{id}`
+Get, edit (partial: `name`/`description`/`icon_url`/`sort_order`), or delete a
+category (admin). Deleting one keeps its topics — their `category_id` is cleared,
+so they fall back to the UI's "Other" group. `DELETE` → `204`.
 
-### `GET /documents/{id}`
-Fetch one document. `404` if unknown.
+## Topics
 
-### `PATCH /documents/{id}`
-Edit a document — only provided fields change (`kind`, `title`, `content`).
+### `GET /topics?category_id=`
+List conversation topics, ordered by `sort_order` then `title`. Pass `category_id`
+to list one category's topics.
 
-### `DELETE /documents/{id}`
-Delete a document. → `204`.
+### `POST /topics`
+Create a topic (admin). `409` if the slug already exists; `404` if `category_id`
+is unknown.
+
+```json
+{ "slug": "travel", "title": "Travel", "level": "intermediate", "category_id": "…", "cover_image_url": null, "sort_order": 0 }
+```
+
+### `GET /topics/{id}` · `PATCH /topics/{id}` · `DELETE /topics/{id}`
+Get, edit (partial: `title`/`description`/`level`/`status`/`category_id`/
+`cover_image_url`/`sort_order`), or delete a topic (admin). Deleting a topic
+deletes its documentation too. `PATCH`/`DELETE` return `404` if unknown;
+`DELETE` → `204`.
+
+### `GET /topics/{id}/doc`
+The topic's documentation with its **full tree** — sections, items, questions, and
+answer templates in one response. `404` if the topic is unknown *or* has no doc
+yet (which is a normal state, not an error).
+
+## Docs (Documentation Content)
+
+A topic's learning page (PRD §8.2). One topic has at most one doc. A doc is an
+ordered list of sections, and a section's `type` decides where its content lives:
+
+| `type` | Holds | Field |
+|---|---|---|
+| `vocabulary` · `phrases` | words and phrases | `items` |
+| `questions` | conversation questions | `questions` |
+| `tips` · `text` | free-form prose | `body` |
+
+Reads return the whole tree; writes are per-node. Reads are open; writes require
+an admin. In every path below the fixed segment comes **before** the id, so
+`/docs/sections/{id}` never collides with `/docs/{doc_id}`.
+
+### `GET /docs?topic_id=`
+List doc summaries (no tree), optionally filtered to one topic.
+
+### `POST /docs`
+Start a topic's documentation (admin). → `201`. `404` if the topic is unknown;
+`409` if it already has a doc.
+
+```json
+{ "topic_id": "…", "title": "Travel", "intro": "Read this before you speak.", "level": null, "status": "draft" }
+```
+
+`status` ∈ `draft` · `published` · `archived`. Only `published` docs feed
+`GET /questions`.
+
+### `GET /docs/{id}`
+Fetch one doc with its full tree. `404` if unknown.
+
+### `PATCH /docs/{id}` · `DELETE /docs/{id}`
+Edit (partial: `title`/`intro`/`level`/`status`) or delete a doc (admin).
+Deleting cascades to every section, item, question, and answer template.
+`DELETE` → `204`.
+
+### `POST /docs/{doc_id}/sections`
+Add a section (admin). → `201`.
+
+```json
+{ "type": "vocabulary", "title": "Useful travel words", "body": null, "sort_order": 0 }
+```
+
+### `PATCH /docs/sections/{id}` · `DELETE /docs/sections/{id}`
+Edit (partial: `title`/`body`/`sort_order`) or delete a section (admin). `type` is
+**not** editable — changing it would orphan the section's children, so delete and
+recreate instead. `DELETE` → `204`.
+
+### `POST /docs/sections/{section_id}/items`
+Add a word or phrase (admin). → `201`. `400` (`bad_request`) if the section is not
+a `vocabulary` or `phrases` section.
+
+```json
+{ "term": "layover", "phonetic": "/ˈleɪoʊvər/", "meaning": "a wait between two flights", "translation": null, "example": "We have a two-hour layover.", "audio_url": null, "sort_order": 0 }
+```
+
+### `PATCH /docs/items/{id}` · `DELETE /docs/items/{id}`
+Edit or delete an item (admin). `DELETE` → `204`.
+
+## Questions and answer templates
+
+Questions live in a doc's `questions` section, but get their own resource because
+Warm-up Practice (PRD §8.12) reads them flat, across many topics, without walking
+each doc tree.
+
+### `GET /questions?topic_id=`
+Questions from **published** docs, each flattened with its `topic_id` and
+`topic_title`, and carrying its `answer_templates`. Ordered by topic, then by the
+admin's section and question order. Draft and archived docs are skipped.
+
+### `POST /questions`
+Add a question (admin). → `201`. `400` (`bad_request`) if `section_id` is not a
+`questions` section.
+
+```json
+{ "section_id": "…", "text": "What is your favourite food?", "translation": null, "audio_url": null, "sort_order": 0 }
+```
+
+### `PATCH /questions/{id}` · `DELETE /questions/{id}`
+Edit (partial: `text`/`translation`/`audio_url`/`sort_order`) or delete a question
+(admin). Deleting takes its answer templates with it. `DELETE` → `204`.
+
+### `POST /questions/{question_id}/answers`
+Add a fill-in-the-blank answer template (admin). → `201`. `404` if the question is
+unknown.
+
+```json
+{ "template": "My favourite food is ___.", "example": "My favourite food is pizza.", "translation": null, "audio_url": null, "sort_order": 0 }
+```
+
+### `PATCH /questions/answers/{id}` · `DELETE /questions/answers/{id}`
+Edit or delete an answer template (admin). `DELETE` → `204`.
 
 ## Users (lightweight profiles)
 
@@ -199,8 +298,8 @@ otherwise a clearly-labelled demo stub (`provider: "stub"`).
 ```
 
 `kind` is `improve` (requires `text`; `422` if blank) or `reply` (uses `context`).
-Pass an optional `topic_id` to **ground** the suggestion in that topic's documents
-(RAG, §8.2/§8.8). Returns `{ "suggestion": "...", "kind": "...", "provider": "claude" | "stub" }`.
+Pass an optional `topic_id` to **ground** the suggestion in that topic's
+documentation — each section is flattened into a short prompt line (RAG, §8.2/§8.8). Returns `{ "suggestion": "...", "kind": "...", "provider": "claude" | "stub" }`.
 
 ## Speech-to-Text
 

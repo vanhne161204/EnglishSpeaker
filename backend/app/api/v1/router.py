@@ -5,10 +5,12 @@ from fastapi import APIRouter
 from app.api.v1.routes import (
     assist,
     auth,
-    documents,
+    categories,
+    docs,
     health,
     match,
     notes,
+    questions,
     rooms,
     topics,
     transcription,
@@ -21,8 +23,10 @@ from app.api.v1.routes import (
 api_router = APIRouter()
 api_router.include_router(health.router)
 api_router.include_router(auth.router)
+api_router.include_router(categories.router)
 api_router.include_router(topics.router)
-api_router.include_router(documents.router)
+api_router.include_router(docs.router)
+api_router.include_router(questions.router)
 api_router.include_router(rooms.router)
 api_router.include_router(notes.router)
 api_router.include_router(translation.router)

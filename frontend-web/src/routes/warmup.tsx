@@ -2,7 +2,14 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { createNote, listTopics, type Topic } from "@/lib/api";
+import {
+  createNote,
+  listQuestions,
+  listTopics,
+  type AnswerTemplate,
+  type Topic,
+  type TopicQuestion,
+} from "@/lib/api";
 import { resolveWarmupQuestions } from "@/lib/warmup";
 import { useMicTranscribe } from "@/lib/voice/use-mic-transcribe";
 import { levelLabel, topicEmoji } from "@/lib/presentation";
@@ -27,6 +34,8 @@ interface WarmupLine {
   readonly id: string;
   readonly role: "system" | "user";
   readonly text: string;
+  /** Answer templates for a question line, revealed on demand as a hint (PRD §8.12). */
+  readonly hints?: readonly AnswerTemplate[];
 }
 
 /** Short, encouraging acknowledgements shown before the next question (PRD §8.8 tone). */
@@ -34,6 +43,8 @@ const ACKS: readonly string[] = ["Nice — got it.", "Good answer!", "Well said.
 
 function WarmupPage() {
   const topicsQ = useQuery({ queryKey: ["topics"], queryFn: () => listTopics() });
+  // One flat fetch covers every topic, so switching topics needs no extra request.
+  const questionsQ = useQuery({ queryKey: ["questions"], queryFn: () => listQuestions() });
   const [topic, setTopic] = useState<Topic | null>(null);
   const [started, setStarted] = useState(false);
 
@@ -41,7 +52,7 @@ function WarmupPage() {
     return (
       <WarmupSession
         topic={topic}
-        allTopics={topicsQ.data ?? []}
+        allQuestions={questionsQ.data ?? []}
         onExit={() => setStarted(false)}
       />
     );
@@ -59,11 +70,17 @@ function WarmupPage() {
         </p>
       </div>
 
-      {topicsQ.isError && (
+      {(topicsQ.isError || questionsQ.isError) && (
         <div className="mt-6 max-w-2xl">
           <ErrorState
-            message={(topicsQ.error as Error)?.message ?? "Couldn't load topics"}
-            onRetry={() => topicsQ.refetch()}
+            message={
+              ((topicsQ.error ?? questionsQ.error) as Error)?.message ??
+              "Couldn't load warm-up content"
+            }
+            onRetry={() => {
+              void topicsQ.refetch();
+              void questionsQ.refetch();
+            }}
           />
         </div>
       )}
@@ -80,17 +97,27 @@ function WarmupPage() {
             title="General warm-up"
             subtitle="A friendly mix of everyday questions"
           />
-          {(topicsQ.data ?? []).map((t) => (
-            <TopicChoice
-              key={t.id}
-              selected={topic?.id === t.id}
-              onClick={() => setTopic(t)}
-              emoji={topicEmoji(t.slug)}
-              title={t.title}
-              subtitle={levelLabel(t.level)}
-            />
-          ))}
-          {topicsQ.isLoading &&
+          {(topicsQ.data ?? []).map((t) => {
+            // Only topics whose published doc actually has questions can run a
+            // warm-up, so the rest are shown as unavailable rather than as a dead end.
+            const count = (questionsQ.data ?? []).filter((q) => q.topic_id === t.id).length;
+            return (
+              <TopicChoice
+                key={t.id}
+                selected={topic?.id === t.id}
+                disabled={count === 0}
+                onClick={() => setTopic(t)}
+                emoji={topicEmoji(t.slug)}
+                title={t.title}
+                subtitle={
+                  count === 0
+                    ? "No questions yet"
+                    : `${levelLabel(t.level)} · ${count} question${count === 1 ? "" : "s"}`
+                }
+              />
+            );
+          })}
+          {(topicsQ.isLoading || questionsQ.isLoading) &&
             Array.from({ length: 3 }).map((_, i) => (
               <div
                 key={i}
@@ -118,21 +145,24 @@ function TopicChoice({
   emoji,
   title,
   subtitle,
+  disabled = false,
 }: {
   selected: boolean;
   onClick: () => void;
   emoji: string;
   title: string;
   subtitle: string;
+  disabled?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       aria-pressed={selected}
-      className={`text-left rounded-3xl border p-4 transition-colors ${
+      className={`text-left rounded-3xl border p-4 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
         selected
           ? "border-primary bg-primary/5 ring-1 ring-primary"
-          : "border-border bg-card hover:bg-muted"
+          : "border-border bg-card hover:bg-muted disabled:hover:bg-card"
       }`}
     >
       <div className="flex items-center gap-2">
@@ -150,14 +180,17 @@ function TopicChoice({
 
 function WarmupSession({
   topic,
-  allTopics,
+  allQuestions,
   onExit,
 }: {
   topic: Topic | null;
-  allTopics: readonly Topic[];
+  allQuestions: readonly TopicQuestion[];
   onExit: () => void;
 }) {
-  const questions = useMemo(() => resolveWarmupQuestions(topic, allTopics), [topic, allTopics]);
+  const questions = useMemo(
+    () => resolveWarmupQuestions(topic, allQuestions),
+    [topic, allQuestions],
+  );
   const [lines, setLines] = useState<WarmupLine[]>([]);
   const [step, setStep] = useState(0); // number of questions answered
   const [draft, setDraft] = useState("");
@@ -168,12 +201,15 @@ function WarmupSession({
     window.setTimeout(() => setNotice(null), 2500);
   }, []);
 
-  const pushLine = useCallback((role: WarmupLine["role"], text: string) => {
-    setLines((prev) => [
-      ...prev,
-      { id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2)}`, role, text },
-    ]);
-  }, []);
+  const pushLine = useCallback(
+    (role: WarmupLine["role"], text: string, hints?: readonly AnswerTemplate[]) => {
+      setLines((prev) => [
+        ...prev,
+        { id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2)}`, role, text, hints },
+      ]);
+    },
+    [],
+  );
 
   // Ask the first question when the session opens. Guarded so React StrictMode's
   // double-invoked mount effect asks it once, not twice.
@@ -181,7 +217,8 @@ function WarmupSession({
   useEffect(() => {
     if (seededRef.current) return;
     seededRef.current = true;
-    if (questions.length > 0) pushLine("system", questions[0]!);
+    const first = questions[0];
+    if (first) pushLine("system", first.text, first.answer_templates);
     // Intentionally run once per session; `questions` is stable for a chosen topic.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -201,8 +238,9 @@ function WarmupSession({
       // The system's turn: acknowledge, then ask the next question — or wrap up.
       const ack = ACKS[nextStep % ACKS.length]!;
       window.setTimeout(() => {
-        if (nextStep < questions.length) {
-          pushLine("system", `${ack} ${questions[nextStep]!}`);
+        const next = questions[nextStep];
+        if (next) {
+          pushLine("system", `${ack} ${next.text}`, next.answer_templates);
         } else {
           pushLine(
             "system",
@@ -381,6 +419,9 @@ function WarmupSession({
 
 function WarmupBubble({ line, onSave }: { line: WarmupLine; onSave?: () => void }) {
   const isUser = line.role === "user";
+  const [showHint, setShowHint] = useState(false);
+  const hints = line.hints ?? [];
+
   return (
     <div className={`group flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div className="max-w-[85%]">
@@ -410,6 +451,39 @@ function WarmupBubble({ line, onSave }: { line: WarmupLine; onSave?: () => void 
             </button>
           )}
         </div>
+
+        {/* Answer templates give the learner a sentence shape to copy (PRD §8.2). */}
+        {hints.length > 0 && (
+          <div className="mt-1.5 ml-3">
+            {showHint ? (
+              <div className="rounded-2xl border border-dashed border-border bg-background p-3 space-y-2">
+                {hints.map((hint) => (
+                  <div key={hint.id}>
+                    <div className="text-sm font-medium text-foreground">{hint.template}</div>
+                    {hint.example && (
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        e.g. {hint.example}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                <button
+                  onClick={() => setShowHint(false)}
+                  className="text-[11px] text-muted-foreground hover:text-foreground"
+                >
+                  Hide hint
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowHint(true)}
+                className="text-[11px] font-semibold text-primary hover:underline"
+              >
+                💡 Need a sentence to start with?
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

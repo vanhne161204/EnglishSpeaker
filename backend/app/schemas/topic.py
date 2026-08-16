@@ -11,8 +11,9 @@ class TopicBase(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str | None = None
     level: str | None = Field(default=None, max_length=40)
-    # Admin-authored questions for Warm-up (PRD §8.1). Empty unless the admin adds them.
-    sample_questions: list[str] = Field(default_factory=list)
+    category_id: uuid.UUID | None = None
+    cover_image_url: str | None = Field(default=None, max_length=500)
+    sort_order: int = 0
 
 
 class TopicCreate(TopicBase):
@@ -25,7 +26,9 @@ class TopicUpdate(BaseModel):
     description: str | None = None
     level: str | None = Field(default=None, max_length=40)
     status: str | None = Field(default=None, max_length=20)
-    sample_questions: list[str] | None = None
+    category_id: uuid.UUID | None = None
+    cover_image_url: str | None = Field(default=None, max_length=500)
+    sort_order: int | None = None
 
 
 class TopicRead(TopicBase):

@@ -9,7 +9,8 @@ from app.core.exceptions import AppError
 from app.core.security import decode_access_token
 from app.db.session import get_session
 from app.models.user import User
-from app.repositories.document import DocumentRepository
+from app.repositories.category import CategoryRepository
+from app.repositories.doc import DocRepository
 from app.repositories.message import MessageRepository
 from app.repositories.note import NoteRepository
 from app.repositories.participant import ParticipantRepository
@@ -18,8 +19,9 @@ from app.repositories.topic import TopicRepository
 from app.repositories.user import UserRepository
 from app.services.assistant import AssistantService
 from app.services.auth import AuthService
+from app.services.category import CategoryService
 from app.services.conversation import ConversationService
-from app.services.document import DocumentService
+from app.services.doc import DocService
 from app.services.match import MatchService
 from app.services.note import NoteService
 from app.services.room import RoomService
@@ -30,12 +32,17 @@ from app.services.translation import TranslationService
 from app.services.user import UserService
 
 
+def get_category_service(session: AsyncSession = Depends(get_session)) -> CategoryService:
+    return CategoryService(CategoryRepository(session))
+
+
 def get_topic_service(session: AsyncSession = Depends(get_session)) -> TopicService:
-    return TopicService(TopicRepository(session))
+    # The category repo lets the service reject an unknown category_id.
+    return TopicService(TopicRepository(session), CategoryRepository(session))
 
 
-def get_document_service(session: AsyncSession = Depends(get_session)) -> DocumentService:
-    return DocumentService(DocumentRepository(session), TopicRepository(session))
+def get_doc_service(session: AsyncSession = Depends(get_session)) -> DocService:
+    return DocService(DocRepository(session), TopicRepository(session))
 
 
 def get_room_service(session: AsyncSession = Depends(get_session)) -> RoomService:
@@ -55,8 +62,8 @@ def get_translation_service() -> TranslationService:
 
 
 def get_assistant_service(session: AsyncSession = Depends(get_session)) -> AssistantService:
-    # Document repo lets the coach ground suggestions in a topic's trusted content.
-    return AssistantService(DocumentRepository(session))
+    # The doc repo lets the coach ground suggestions in a topic's trusted content.
+    return AssistantService(DocRepository(session))
 
 
 def get_transcription_service() -> TranscriptionService:

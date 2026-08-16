@@ -92,6 +92,7 @@ CREATE TYPE session_status      AS ENUM ('pending', 'active', 'ended', 'cancelle
 CREATE TYPE room_status         AS ENUM ('open', 'active', 'closed');
 CREATE TYPE match_status        AS ENUM ('waiting', 'matched', 'cancelled', 'expired');
 CREATE TYPE content_status      AS ENUM ('draft', 'published', 'archived');
+CREATE TYPE doc_section_type    AS ENUM ('vocabulary', 'phrases', 'questions', 'tips', 'text');
 CREATE TYPE note_source         AS ENUM ('self', 'ai', 'peer', 'topic_question', 'phrase');
 CREATE TYPE ai_request_type     AS ENUM ('suggest_next', 'improve', 'correct', 'natural',
                                          'vocabulary', 'topic_question', 'feedback');
@@ -145,9 +146,13 @@ erDiagram
     cefr_levels ||--o{ topics : suggested_at
     cefr_levels ||--o{ rooms : suggested_at
 
-    topics ||--o{ topic_questions : contains
-    topics ||--o{ documents : groups
-    documents ||--o{ document_chunks : embeds
+    categories ||--o{ topics : groups
+    topics ||--|| docs : documented_by
+    docs ||--o{ doc_sections : contains
+    doc_sections ||--o{ doc_items : lists
+    doc_sections ||--o{ questions : asks
+    questions ||--o{ answer_templates : answered_by
+    doc_sections ||--o{ document_chunks : embeds
 
     users ||--o{ rooms : creates
     topics ||--o{ rooms : about
@@ -276,56 +281,122 @@ CREATE TABLE user_interests (
 > ordinal lets the matcher compute `abs(a.level_id - b.level_id) <= tolerance` cheaply, while the label
 > stays editable by admins.
 
-### 6.3 Topics and Learning Content (admin-managed)
+### 6.3 Categories and Topics (admin-managed)
 
 ```sql
-CREATE TABLE topics (
+-- Themes that group topics: "Daily Life", "Work", "Travel" (PRD §8.1).
+CREATE TABLE categories (
     id          uuid PRIMARY KEY,
+    name        text NOT NULL,
     slug        text NOT NULL,
-    title       text NOT NULL,
     description text,
-    level_id    smallint REFERENCES cefr_levels(id),   -- suggested level (nullable = any)
-    status      content_status NOT NULL DEFAULT 'draft',
-    created_by  uuid REFERENCES users(id) ON DELETE SET NULL,  -- admin
+    icon_url    text,
     sort_order  integer NOT NULL DEFAULT 0,
     created_at  timestamptz NOT NULL DEFAULT now(),
     updated_at  timestamptz NOT NULL DEFAULT now(),
-    deleted_at  timestamptz,                                   -- (soft-delete)
-    CONSTRAINT uq_topics_slug UNIQUE (slug)
+    CONSTRAINT uq_categories_slug UNIQUE (slug)
 );
 
-CREATE TABLE topic_questions (
-    id         uuid PRIMARY KEY,
-    topic_id   uuid NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
-    question   text NOT NULL,
-    sort_order integer NOT NULL DEFAULT 0,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now()
+CREATE TABLE topics (
+    id              uuid PRIMARY KEY,
+    category_id     uuid REFERENCES categories(id) ON DELETE SET NULL,  -- nullable = "Other"
+    slug            text NOT NULL,
+    title           text NOT NULL,
+    description     text,
+    level_id        smallint REFERENCES cefr_levels(id),   -- suggested level (nullable = any)
+    cover_image_url text,
+    status          content_status NOT NULL DEFAULT 'draft',
+    created_by      uuid REFERENCES users(id) ON DELETE SET NULL,  -- admin
+    sort_order      integer NOT NULL DEFAULT 0,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now(),
+    deleted_at      timestamptz,                                   -- (soft-delete)
+    CONSTRAINT uq_topics_slug UNIQUE (slug)
 );
 ```
 
+> **Why `ON DELETE SET NULL` on `category_id`:** deleting a shelf must never delete
+> the books. Topics survive and fall back to the UI's "Other" group.
+
 ### 6.4 Documentation Content and RAG (pgvector)
 
+A topic has **one** doc. A doc is an ordered list of sections, and a section's
+`type` decides where its content lives — `vocabulary`/`phrases` in `doc_items`,
+`questions` in `questions`, and `tips`/`text` in the section's own `body`
+(PRD §8.2).
+
 ```sql
--- Source document authored/approved by an admin (PRD §8.2).
-CREATE TABLE documents (
+-- The learner-facing page for a topic, authored/approved by an admin.
+CREATE TABLE docs (
     id          uuid PRIMARY KEY,
-    topic_id    uuid REFERENCES topics(id) ON DELETE SET NULL,   -- nullable = general content
-    title       text NOT NULL,
-    body        text NOT NULL,                                    -- raw source (markdown/plain)
-    level_id    smallint REFERENCES cefr_levels(id),
-    status      content_status NOT NULL DEFAULT 'draft',          -- only 'published' is indexed/retrieved
+    topic_id    uuid NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+    title       text,                                             -- defaults to the topic title
+    intro       text,                                             -- short "how to use this" note
+    level_id    smallint REFERENCES cefr_levels(id),              -- optional override of topic level
+    status      content_status NOT NULL DEFAULT 'draft',          -- only 'published' is shown/indexed
     version     integer NOT NULL DEFAULT 1,
     created_by  uuid REFERENCES users(id) ON DELETE SET NULL,
     created_at  timestamptz NOT NULL DEFAULT now(),
     updated_at  timestamptz NOT NULL DEFAULT now(),
-    deleted_at  timestamptz                                       -- (soft-delete)
+    deleted_at  timestamptz,                                      -- (soft-delete)
+    CONSTRAINT uq_docs_topic UNIQUE (topic_id)                    -- at most one doc per topic
+);
+
+CREATE TABLE doc_sections (
+    id          uuid PRIMARY KEY,
+    doc_id      uuid NOT NULL REFERENCES docs(id) ON DELETE CASCADE,
+    type        doc_section_type NOT NULL,   -- vocabulary|phrases|questions|tips|text
+    title       text,
+    body        text,                        -- used by 'tips'/'text'; NULL for the others
+    sort_order  integer NOT NULL DEFAULT 0,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- Vocabulary and phrases share one shape, so one table serves both section types.
+CREATE TABLE doc_items (
+    id          uuid PRIMARY KEY,
+    section_id  uuid NOT NULL REFERENCES doc_sections(id) ON DELETE CASCADE,
+    term        text NOT NULL,               -- a word or a phrase
+    phonetic    text,                        -- /ˈbrekfəst/
+    meaning     text,
+    translation text,                        -- native-language version
+    example     text,
+    audio_url   text,
+    sort_order  integer NOT NULL DEFAULT 0,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- Conversation questions. The single source for Warm-up Practice (PRD §8.12).
+CREATE TABLE questions (
+    id          uuid PRIMARY KEY,
+    section_id  uuid NOT NULL REFERENCES doc_sections(id) ON DELETE CASCADE,
+    text        text NOT NULL,
+    translation text,
+    audio_url   text,
+    sort_order  integer NOT NULL DEFAULT 0,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- A sentence shape the learner can lean on when they can't invent one.
+CREATE TABLE answer_templates (
+    id          uuid PRIMARY KEY,
+    question_id uuid NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+    template    text NOT NULL,               -- "My favourite food is ___."
+    example     text,                        -- "My favourite food is pizza."
+    translation text,
+    audio_url   text,
+    sort_order  integer NOT NULL DEFAULT 0,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
 -- Chunked + embedded representation, rebuilt by the async indexing job (06_Architecture §9).
 CREATE TABLE document_chunks (
     id           uuid PRIMARY KEY,
-    document_id  uuid NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    section_id   uuid NOT NULL REFERENCES doc_sections(id) ON DELETE CASCADE,
     chunk_index  integer NOT NULL,
     content      text NOT NULL,
     token_count  integer,
@@ -333,15 +404,17 @@ CREATE TABLE document_chunks (
     metadata     jsonb NOT NULL DEFAULT '{}'::jsonb,              -- {topic_id, level, tags...}
     created_at   timestamptz NOT NULL DEFAULT now(),
     updated_at   timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT uq_document_chunks_doc_idx UNIQUE (document_id, chunk_index)
+    CONSTRAINT uq_document_chunks_section_idx UNIQUE (section_id, chunk_index)
 );
 ```
 
 | Notes |
 |-------|
-| `document_chunks` is **derived data** — fully rebuildable from `documents`; safe to truncate and re-index. |
+| A section's `type` is **not** editable: switching `vocabulary` → `questions` would orphan its children. Delete and recreate instead. |
+| `document_chunks` is **derived data** — fully rebuildable from `doc_sections`; safe to truncate and re-index. |
 | Retrieval filters on `metadata`/`topic_id` so suggestions stay scoped to the conversation topic (PRD §8.8). |
-| Only `documents.status='published'` chunks are queried at runtime. |
+| Only chunks whose `docs.status='published'` are queried at runtime. |
+| Questions live **only** here. There is no second question list on the topic — Warm-up and the in-room panel both read these rows. |
 
 ### 6.5 Rooms, Matching, and Sessions
 
@@ -596,8 +669,13 @@ CREATE INDEX ix_user_profiles_level        ON user_profiles(level_id);
 
 -- Topics / content search
 CREATE INDEX ix_topics_status              ON topics(status) WHERE deleted_at IS NULL;
+CREATE INDEX ix_topics_category            ON topics(category_id);
 CREATE INDEX ix_topics_title_trgm          ON topics USING gin (title gin_trgm_ops);
-CREATE INDEX ix_documents_topic            ON documents(topic_id) WHERE status = 'published';
+CREATE INDEX ix_docs_topic                 ON docs(topic_id) WHERE status = 'published';
+CREATE INDEX ix_doc_sections_doc           ON doc_sections(doc_id);
+CREATE INDEX ix_doc_items_section          ON doc_items(section_id);
+CREATE INDEX ix_questions_section          ON questions(section_id);
+CREATE INDEX ix_answer_templates_question  ON answer_templates(question_id);
 
 -- RAG vector search (cosine) — built after bulk load for better recall/perf
 CREATE INDEX ix_document_chunks_embedding  ON document_chunks
@@ -702,8 +780,9 @@ Open questions on exact windows and export are tracked in PRD §17 and resolved 
 |-------------|--------|
 | Accounts, profile, level, interests (§9.1) | `users`, `user_profiles`, `cefr_levels`, `interests`, `user_interests` |
 | Normal / Incognito mode (§7) | `mode` on `rooms`, `match_requests`, `conversation_sessions`; alias on `session_participants` |
-| Topics + sample questions (§8.1) | `topics`, `topic_questions` |
-| Documentation content / RAG (§8.2, §8.8) | `documents`, `document_chunks` |
+| Categories + topics (§8.1) | `categories`, `topics` |
+| Documentation content / RAG (§8.2, §8.8) | `docs`, `doc_sections`, `doc_items`, `document_chunks` |
+| Conversation questions + sample answers (§8.1, §8.2, §8.12) | `questions`, `answer_templates` |
 | Rooms (§8.3) | `rooms`, `conversation_sessions`, `session_participants` |
 | Match One / Random / conditions (§8.4–8.6) | `match_requests`, `conversation_sessions`, `blocks` |
 | Speech-to-Text + transcript (§8.9) | `conversation_sessions.stt_enabled`, `transcript_segments` |

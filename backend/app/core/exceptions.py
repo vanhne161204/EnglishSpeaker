@@ -28,6 +28,17 @@ class NotFoundError(AppError):
     code = "not_found"
 
 
+class BadRequestError(AppError):
+    """The request is well-formed but asks for something the domain disallows.
+
+    Used where a rule can't be expressed in the Pydantic schema — e.g. adding a
+    vocabulary item to a ``questions`` section (PRD §8.2).
+    """
+
+    status_code = 400
+    code = "bad_request"
+
+
 class ConflictError(AppError):
     status_code = 409
     code = "conflict"

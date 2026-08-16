@@ -6,12 +6,26 @@
 
 import { API_BASE_URL, apiRequest, WS_BASE_URL } from "./client";
 import type {
+  AnswerTemplate,
+  AnswerTemplateCreate,
+  AnswerTemplateUpdate,
   AssistRequest,
   AssistResult,
   AuthResult,
+  Category,
+  CategoryCreate,
+  CategoryUpdate,
   ConversationMode,
-  DocumentCreate,
-  DocumentUpdate,
+  Doc,
+  DocCreate,
+  DocItem,
+  DocItemCreate,
+  DocItemUpdate,
+  DocSection,
+  DocSectionCreate,
+  DocSectionUpdate,
+  DocSummary,
+  DocUpdate,
   Message,
   ModerateResult,
   ModerationAction,
@@ -19,13 +33,16 @@ import type {
   NoteCreate,
   NoteUpdate,
   PlanTier,
+  Question,
+  QuestionCreate,
+  QuestionUpdate,
   Room,
   RoomCreate,
   RoomKind,
   Subscription,
   Topic,
   TopicCreate,
-  TopicDocument,
+  TopicQuestion,
   TopicUpdate,
   TranscriptionResult,
   TranslateRequest,
@@ -52,25 +69,70 @@ export const login = (username: string, password: string) =>
   apiRequest<AuthResult>("/auth/login", { method: "POST", body: { username, password } });
 export const logoutApi = () => apiRequest<{ ok: boolean }>("/auth/logout", { method: "POST" });
 
+// ----- Categories (topic grouping, PRD §8.1) -----
+export const listCategories = () => apiRequest<Category[]>("/categories");
+export const createCategory = (body: CategoryCreate) =>
+  apiRequest<Category>("/categories", { method: "POST", body });
+export const updateCategory = (id: string, body: CategoryUpdate) =>
+  apiRequest<Category>(`/categories/${id}`, { method: "PATCH", body });
+export const deleteCategory = (id: string) =>
+  apiRequest<void>(`/categories/${id}`, { method: "DELETE" });
+
 // ----- Topics -----
-export const listTopics = () => apiRequest<Topic[]>("/topics");
+export const listTopics = (categoryId?: string) =>
+  apiRequest<Topic[]>("/topics", { query: { category_id: categoryId } });
 export const getTopic = (id: string) => apiRequest<Topic>(`/topics/${id}`);
-// Admin (PRD §9.2) — no auth gate yet, like the rest of the demo API.
+/** A topic's documentation with its full tree. Throws a 404 `ApiError` if it has none. */
+export const getTopicDoc = (topicId: string) => apiRequest<Doc>(`/topics/${topicId}/doc`);
+// Admin-only writes (PRD §9.2); the bearer token is attached by the client.
 export const createTopic = (body: TopicCreate) =>
   apiRequest<Topic>("/topics", { method: "POST", body });
 export const updateTopic = (id: string, body: TopicUpdate) =>
   apiRequest<Topic>(`/topics/${id}`, { method: "PATCH", body });
 export const deleteTopic = (id: string) => apiRequest<void>(`/topics/${id}`, { method: "DELETE" });
 
-// ----- Documents (topic learning content) -----
-export const listDocuments = (topicId?: string) =>
-  apiRequest<TopicDocument[]>("/documents", { query: { topic_id: topicId } });
-export const createDocument = (body: DocumentCreate) =>
-  apiRequest<TopicDocument>("/documents", { method: "POST", body });
-export const updateDocument = (id: string, body: DocumentUpdate) =>
-  apiRequest<TopicDocument>(`/documents/${id}`, { method: "PATCH", body });
-export const deleteDocument = (id: string) =>
-  apiRequest<void>(`/documents/${id}`, { method: "DELETE" });
+// ----- Topic documentation (PRD §8.2) -----
+export const listDocs = (topicId?: string) =>
+  apiRequest<DocSummary[]>("/docs", { query: { topic_id: topicId } });
+export const getDoc = (id: string) => apiRequest<Doc>(`/docs/${id}`);
+export const createDoc = (body: DocCreate) =>
+  apiRequest<DocSummary>("/docs", { method: "POST", body });
+export const updateDoc = (id: string, body: DocUpdate) =>
+  apiRequest<DocSummary>(`/docs/${id}`, { method: "PATCH", body });
+export const deleteDoc = (id: string) => apiRequest<void>(`/docs/${id}`, { method: "DELETE" });
+
+export const createSection = (docId: string, body: DocSectionCreate) =>
+  apiRequest<DocSection>(`/docs/${docId}/sections`, { method: "POST", body });
+export const updateSection = (id: string, body: DocSectionUpdate) =>
+  apiRequest<DocSection>(`/docs/sections/${id}`, { method: "PATCH", body });
+export const deleteSection = (id: string) =>
+  apiRequest<void>(`/docs/sections/${id}`, { method: "DELETE" });
+
+/** Vocabulary / phrase items. Rejected with a 400 on a non-item section. */
+export const createDocItem = (sectionId: string, body: DocItemCreate) =>
+  apiRequest<DocItem>(`/docs/sections/${sectionId}/items`, { method: "POST", body });
+export const updateDocItem = (id: string, body: DocItemUpdate) =>
+  apiRequest<DocItem>(`/docs/items/${id}`, { method: "PATCH", body });
+export const deleteDocItem = (id: string) =>
+  apiRequest<void>(`/docs/items/${id}`, { method: "DELETE" });
+
+// ----- Questions + answer templates (PRD §8.2, §8.12) -----
+/** Questions from *published* docs, flattened with their topic. Powers Warm-up. */
+export const listQuestions = (topicId?: string) =>
+  apiRequest<TopicQuestion[]>("/questions", { query: { topic_id: topicId } });
+export const createQuestion = (body: QuestionCreate) =>
+  apiRequest<Question>("/questions", { method: "POST", body });
+export const updateQuestion = (id: string, body: QuestionUpdate) =>
+  apiRequest<Question>(`/questions/${id}`, { method: "PATCH", body });
+export const deleteQuestion = (id: string) =>
+  apiRequest<void>(`/questions/${id}`, { method: "DELETE" });
+
+export const createAnswerTemplate = (questionId: string, body: AnswerTemplateCreate) =>
+  apiRequest<AnswerTemplate>(`/questions/${questionId}/answers`, { method: "POST", body });
+export const updateAnswerTemplate = (id: string, body: AnswerTemplateUpdate) =>
+  apiRequest<AnswerTemplate>(`/questions/answers/${id}`, { method: "PATCH", body });
+export const deleteAnswerTemplate = (id: string) =>
+  apiRequest<void>(`/questions/answers/${id}`, { method: "DELETE" });
 
 // ----- Users (lightweight profiles) -----
 export const createUser = (body: UserCreate) =>

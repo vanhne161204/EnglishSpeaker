@@ -6,13 +6,36 @@ export type ConversationMode = "normal" | "incognito";
 export type RoomKind = "group" | "one_on_one";
 export type AssistKind = "improve" | "reply";
 export type PlanTier = "free" | "premium";
-export type DocumentKind =
-  | "explanation"
-  | "example"
-  | "vocabulary"
-  | "mistake"
-  | "tip"
-  | "sample_answer";
+/** Publication state of admin-authored content (PRD §8.1/§8.2). */
+export type ContentStatus = "draft" | "published" | "archived";
+/** What a doc section holds, and therefore how it renders (PRD §8.2). */
+export type DocSectionType = "vocabulary" | "phrases" | "questions" | "tips" | "text";
+
+// ----- Categories (topic grouping, PRD §8.1) -----
+export type Category = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  icon_url: string | null;
+  sort_order: number;
+  created_at: string;
+};
+
+export type CategoryCreate = {
+  name: string;
+  slug: string;
+  description?: string | null;
+  icon_url?: string | null;
+  sort_order?: number;
+};
+
+export type CategoryUpdate = {
+  name?: string;
+  description?: string | null;
+  icon_url?: string | null;
+  sort_order?: number;
+};
 
 // ----- Topics -----
 export type Topic = {
@@ -22,8 +45,10 @@ export type Topic = {
   description: string | null;
   level: string | null;
   status: string;
-  /** Admin-authored Warm-up questions (PRD §8.1); empty if none added. */
-  sample_questions: string[];
+  /** Grouping category, or `null` for an ungrouped topic (shown under "Other"). */
+  category_id: string | null;
+  cover_image_url: string | null;
+  sort_order: number;
   created_at: string;
 };
 
@@ -32,40 +57,151 @@ export type TopicCreate = {
   title: string;
   description?: string | null;
   level?: string | null;
-  sample_questions?: string[];
+  category_id?: string | null;
+  cover_image_url?: string | null;
+  sort_order?: number;
 };
 
 export type TopicUpdate = {
-  slug?: string;
   title?: string;
   description?: string | null;
   level?: string | null;
   status?: string;
-  sample_questions?: string[];
+  category_id?: string | null;
+  cover_image_url?: string | null;
+  sort_order?: number;
 };
 
-// ----- Documents (topic learning content) -----
-export type TopicDocument = {
+// ----- Topic documentation (PRD §8.2) -----
+//
+// A topic has one doc. A doc is an ordered list of sections, and a section's
+// `type` decides where its content lives:
+//   vocabulary | phrases -> `items`
+//   questions            -> `questions` (each with `answer_templates`)
+//   tips | text          -> `body`
+
+/** A fill-in-the-blank answer the learner can lean on. */
+export type AnswerTemplate = {
+  id: string;
+  question_id: string;
+  /** The shape, e.g. "My favourite food is ___." */
+  template: string;
+  /** The same sentence filled in, e.g. "My favourite food is pizza." */
+  example: string | null;
+  translation: string | null;
+  audio_url: string | null;
+  sort_order: number;
+};
+
+export type AnswerTemplateCreate = {
+  template: string;
+  example?: string | null;
+  translation?: string | null;
+  audio_url?: string | null;
+  sort_order?: number;
+};
+
+export type AnswerTemplateUpdate = Partial<AnswerTemplateCreate>;
+
+export type Question = {
+  id: string;
+  section_id: string;
+  text: string;
+  translation: string | null;
+  audio_url: string | null;
+  sort_order: number;
+  answer_templates: AnswerTemplate[];
+};
+
+/** A question flattened with its topic — the shape `GET /questions` returns. */
+export type TopicQuestion = Question & {
+  topic_id: string;
+  topic_title: string;
+};
+
+export type QuestionCreate = {
+  section_id: string;
+  text: string;
+  translation?: string | null;
+  audio_url?: string | null;
+  sort_order?: number;
+};
+
+export type QuestionUpdate = Omit<Partial<QuestionCreate>, "section_id">;
+
+/** One word or phrase. Vocabulary and phrases share this shape. */
+export type DocItem = {
+  id: string;
+  section_id: string;
+  term: string;
+  /** IPA spelling, e.g. "/ˈbrekfəst/". */
+  phonetic: string | null;
+  meaning: string | null;
+  translation: string | null;
+  example: string | null;
+  audio_url: string | null;
+  sort_order: number;
+};
+
+export type DocItemCreate = {
+  term: string;
+  phonetic?: string | null;
+  meaning?: string | null;
+  translation?: string | null;
+  example?: string | null;
+  audio_url?: string | null;
+  sort_order?: number;
+};
+
+export type DocItemUpdate = Partial<DocItemCreate>;
+
+export type DocSection = {
+  id: string;
+  doc_id: string;
+  type: DocSectionType;
+  title: string | null;
+  /** Used by `tips` and `text` sections; empty for the others. */
+  body: string | null;
+  sort_order: number;
+  items: DocItem[];
+  questions: Question[];
+};
+
+export type DocSectionCreate = {
+  type: DocSectionType;
+  title?: string | null;
+  body?: string | null;
+  sort_order?: number;
+};
+
+/** `type` is not editable — changing it would orphan the section's children. */
+export type DocSectionUpdate = Omit<Partial<DocSectionCreate>, "type">;
+
+/** A doc without its tree, as returned by list and write endpoints. */
+export type DocSummary = {
   id: string;
   topic_id: string;
-  kind: DocumentKind;
-  title: string;
-  content: string;
+  title: string | null;
+  intro: string | null;
+  level: string | null;
+  status: ContentStatus;
   created_at: string;
+  updated_at: string;
 };
 
-export type DocumentCreate = {
+export type Doc = DocSummary & {
+  sections: DocSection[];
+};
+
+export type DocCreate = {
   topic_id: string;
-  kind?: DocumentKind;
-  title: string;
-  content: string;
+  title?: string | null;
+  intro?: string | null;
+  level?: string | null;
+  status?: ContentStatus;
 };
 
-export type DocumentUpdate = {
-  kind?: DocumentKind;
-  title?: string;
-  content?: string;
-};
+export type DocUpdate = Omit<Partial<DocCreate>, "topic_id">;
 
 // ----- Rooms -----
 export type RoomCreate = {

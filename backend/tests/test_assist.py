@@ -31,18 +31,22 @@ async def test_reply_suggestion_without_text(client: AsyncClient) -> None:
 
 
 async def test_improve_accepts_topic_for_grounding(admin_client: AsyncClient) -> None:
-    # Create a topic + document so the coach has trusted content to ground on (RAG).
+    # Give the topic a doc so the coach has trusted content to ground on (RAG).
     topic = (
         await admin_client.post("/api/v1/topics", json={"slug": "travel", "title": "Travel"})
     ).json()
+    doc = (
+        await admin_client.post(
+            "/api/v1/docs", json={"topic_id": topic["id"], "status": "published"}
+        )
+    ).json()
+    section = (
+        await admin_client.post(
+            f"/api/v1/docs/{doc['id']}/sections", json={"type": "vocabulary", "title": "Words"}
+        )
+    ).json()
     await admin_client.post(
-        "/api/v1/documents",
-        json={
-            "topic_id": topic["id"],
-            "kind": "vocabulary",
-            "title": "Words",
-            "content": "layover",
-        },
+        f"/api/v1/docs/sections/{section['id']}/items", json={"term": "layover"}
     )
     resp = await admin_client.post(
         "/api/v1/assist",

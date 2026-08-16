@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { listTopics, type Topic } from "@/lib/api";
+import { listCategories, listTopics, type Category, type Topic } from "@/lib/api";
 import { levelLabel, topicEmoji } from "@/lib/presentation";
 
 export const Route = createFileRoute("/topics/")({
@@ -39,12 +39,17 @@ function TopicsIndex() {
     queryKey: ["topics"],
     queryFn: () => listTopics(),
   });
+  const categoriesQ = useQuery({ queryKey: ["categories"], queryFn: () => listCategories() });
 
   const filtered: Topic[] = !topics
     ? []
     : level === "All"
       ? topics
       : topics.filter((t) => t.level === level);
+
+  // Group into the admin's categories (PRD §8.1), keeping their sort order.
+  // Ungrouped topics fall into a trailing "Other" group rather than disappearing.
+  const groups = groupByCategory(filtered, categoriesQ.data ?? []);
 
   return (
     <>
@@ -79,30 +84,95 @@ function TopicsIndex() {
         {!isLoading && !isError && filtered.length === 0 && (
           <p className="text-center text-muted-foreground">No topics at this level yet.</p>
         )}
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filtered.map((t) => (
-            <Link
-              key={t.id}
-              to="/topics/$topicId"
-              params={{ topicId: t.id }}
-              className="rounded-3xl border border-border bg-card p-7 hover:shadow-[var(--shadow-soft)] hover:-translate-y-0.5 transition-all"
-            >
-              <div className="flex items-center justify-between">
-                <div className="text-3xl">{topicEmoji(t.slug)}</div>
-                <span className="text-[10px] uppercase tracking-wider rounded-full px-2 py-1 bg-muted text-muted-foreground">
-                  {levelLabel(t.level)}
+        <div className="space-y-12">
+          {groups.map((group) => (
+            <div key={group.key}>
+              <div className="flex items-baseline gap-3">
+                <h2 className="text-2xl text-ink">{group.name}</h2>
+                <span className="text-xs text-muted-foreground">
+                  {group.topics.length} topic{group.topics.length === 1 ? "" : "s"}
                 </span>
               </div>
-              <h3 className="mt-3 text-xl text-ink">{t.title}</h3>
-              <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">
-                {t.description ?? "Practice speaking on this topic."}
-              </p>
-              <div className="mt-4 text-xs font-semibold text-primary">Open topic →</div>
-            </Link>
+              {group.description && (
+                <p className="mt-1 text-sm text-muted-foreground">{group.description}</p>
+              )}
+              <div className="mt-5 grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                {group.topics.map((t) => (
+                  <TopicCard key={t.id} topic={t} />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       </section>
     </>
+  );
+}
+
+/** A category with the topics that belong to it, ready to render. */
+interface TopicGroup {
+  readonly key: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly topics: readonly Topic[];
+}
+
+function groupByCategory(
+  topics: readonly Topic[],
+  categories: readonly Category[],
+): readonly TopicGroup[] {
+  const groups: TopicGroup[] = categories
+    .map((c) => ({
+      key: c.id,
+      name: c.name,
+      description: c.description,
+      topics: topics.filter((t) => t.category_id === c.id),
+    }))
+    .filter((g) => g.topics.length > 0);
+
+  const known = new Set(categories.map((c) => c.id));
+  const ungrouped = topics.filter((t) => t.category_id === null || !known.has(t.category_id));
+  if (ungrouped.length > 0) {
+    // "All topics" reads better than "Other" when no category exists at all.
+    groups.push({
+      key: "__ungrouped__",
+      name: groups.length === 0 ? "All topics" : "Other",
+      description: null,
+      topics: ungrouped,
+    });
+  }
+  return groups;
+}
+
+function TopicCard({ topic }: { topic: Topic }) {
+  return (
+    <Link
+      to="/topics/$topicId"
+      params={{ topicId: topic.id }}
+      className="rounded-3xl border border-border bg-card overflow-hidden hover:shadow-[var(--shadow-soft)] hover:-translate-y-0.5 transition-all"
+    >
+      {topic.cover_image_url && (
+        <img
+          src={topic.cover_image_url}
+          alt=""
+          loading="lazy"
+          className="h-32 w-full object-cover"
+        />
+      )}
+      <div className="p-7">
+        <div className="flex items-center justify-between">
+          <div className="text-3xl">{topicEmoji(topic.slug)}</div>
+          <span className="text-[10px] uppercase tracking-wider rounded-full px-2 py-1 bg-muted text-muted-foreground">
+            {levelLabel(topic.level)}
+          </span>
+        </div>
+        <h3 className="mt-3 text-xl text-ink">{topic.title}</h3>
+        <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">
+          {topic.description ?? "Practice speaking on this topic."}
+        </p>
+        <div className="mt-4 text-xs font-semibold text-primary">Open topic →</div>
+      </div>
+    </Link>
   );
 }
 

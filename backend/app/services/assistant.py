@@ -10,14 +10,18 @@ making mistakes.
 import logging
 
 from app.core.config import settings
-from app.repositories.document import DocumentRepository
+from app.models.doc import DocSection
+from app.models.enums import DocSectionType
+from app.repositories.doc import DocRepository
 from app.schemas.assist import AssistKind, AssistRequest, AssistResult
 
 logger = logging.getLogger(__name__)
 
 # Cap how much trusted material we inject so the prompt stays small and cheap.
-_MAX_DOCS = 6
-_MAX_DOC_CHARS = 400
+_MAX_SECTIONS = 6
+_MAX_SECTION_CHARS = 400
+# Only the first few children of a section — enough to steer the model, not a dump.
+_MAX_CHILDREN = 8
 
 _SYSTEM_PROMPTS: dict[AssistKind, str] = {
     AssistKind.improve: (
@@ -36,12 +40,12 @@ _SYSTEM_PROMPTS: dict[AssistKind, str] = {
 
 
 class AssistantService:
-    def __init__(self, documents: DocumentRepository | None = None) -> None:
+    def __init__(self, docs: DocRepository | None = None) -> None:
         # Optional so the service still works without DB access (e.g. unit tests).
-        self.documents = documents
+        self.docs = docs
 
     async def assist(self, payload: AssistRequest) -> AssistResult:
-        # Ground the coach in the topic's trusted documents when available (RAG).
+        # Ground the coach in the topic's trusted documentation when available (RAG).
         trusted = await self._topic_context(payload)
         if settings.anthropic_api_key:
             try:
@@ -52,12 +56,19 @@ class AssistantService:
         return self._stub(payload)
 
     async def _topic_context(self, payload: AssistRequest) -> str:
-        if payload.topic_id is None or self.documents is None:
+        """Flatten the topic's doc into a few short prompt lines (PRD §8.2)."""
+        if payload.topic_id is None or self.docs is None:
             return ""
-        docs = await self.documents.list(payload.topic_id)
-        if not docs:
+        doc = await self.docs.get_by_topic(payload.topic_id)
+        if doc is None:
             return ""
-        lines = [f"- {d.title}: {d.content[:_MAX_DOC_CHARS]}" for d in docs[:_MAX_DOCS]]
+        lines = [
+            line
+            for section in doc.sections[:_MAX_SECTIONS]
+            if (line := _section_line(section))
+        ]
+        if not lines:
+            return ""
         return "Use this trusted material about the topic when helpful:\n" + "\n".join(lines)
 
     async def _with_claude(self, payload: AssistRequest, trusted: str) -> AssistResult:
@@ -96,6 +107,22 @@ class AssistantService:
         else:
             suggestion = "That's interesting! Could you tell me more about it?"
         return AssistResult(suggestion=suggestion, kind=payload.kind, provider="stub")
+
+
+def _section_line(section: DocSection) -> str:
+    """Render one doc section as a single short prompt line, or "" if it's empty."""
+    kind = DocSectionType(section.type)
+    label = section.title or kind.value
+
+    if kind.holds_items:
+        content = ", ".join(item.term for item in section.items[:_MAX_CHILDREN])
+    elif kind.holds_questions:
+        content = " ".join(q.text for q in section.questions[:_MAX_CHILDREN])
+    else:
+        content = (section.body or "").replace("\n", " ")
+
+    content = content.strip()[:_MAX_SECTION_CHARS]
+    return f"- {label}: {content}" if content else ""
 
 
 def _simple_polish(text: str) -> str:

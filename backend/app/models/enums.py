@@ -32,16 +32,39 @@ class PlanTier(StrEnum):
     premium = "premium"
 
 
-class DocumentKind(StrEnum):
-    """Type of admin learning content attached to a topic (PRD §8.2).
+class ContentStatus(StrEnum):
+    """Publication state of admin-authored content (topics, docs — PRD §8.1/§8.2).
 
-    Surfaced as a topic's "related documents" and used as trusted content the AI
-    coach can draw on (the RAG source).
+    Only ``published`` content is shown to learners; ``draft`` is work in progress
+    and ``archived`` is retired but kept for reference.
     """
 
-    explanation = "explanation"
-    example = "example"
+    draft = "draft"
+    published = "published"
+    archived = "archived"
+
+
+class DocSectionType(StrEnum):
+    """Kind of block inside a topic's documentation (PRD §8.2).
+
+    The type decides both what a section holds and how the UI renders it:
+    ``vocabulary``/``phrases`` hold ``doc_items``, ``questions`` holds
+    ``questions`` (each with answer templates), and ``tips``/``text`` are
+    free-form ``body`` prose.
+    """
+
     vocabulary = "vocabulary"
-    mistake = "mistake"
-    tip = "tip"
-    sample_answer = "sample_answer"
+    phrases = "phrases"
+    questions = "questions"
+    tips = "tips"
+    text = "text"
+
+    @property
+    def holds_items(self) -> bool:
+        """True when this section's content lives in ``doc_items``."""
+        return self in (DocSectionType.vocabulary, DocSectionType.phrases)
+
+    @property
+    def holds_questions(self) -> bool:
+        """True when this section's content lives in ``questions``."""
+        return self is DocSectionType.questions

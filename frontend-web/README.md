@@ -68,7 +68,8 @@ const { translated_text } = await translate({ text: "Good morning", target_lang:
 
 The data-driven screens run on the **live backend** — there is no mock data:
 
-- **Topics** (`/topics`, `/topics/$id`) — real topics + their documents (learning notes).
+- **Topics** (`/topics`, `/topics/$id`) — real topics grouped by category, and each
+  topic's documentation: vocabulary, phrases, questions, and sample answers.
 - **Rooms** (`/rooms`) — real open rooms with live filters (format/level/mode/topic).
 - **Room** (`/rooms/$id`) — joins via `POST /rooms/{id}/join`, loads message history,
   and runs **live chat over the room WebSocket**; the in-room **translator** and **AI

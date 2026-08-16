@@ -8,6 +8,7 @@ import {
   joinRoom,
   leaveRoom,
   listMessages,
+  listQuestions,
   listTopics,
   moderateRoom,
   roomSocketUrl,
@@ -352,7 +353,6 @@ function RoomLive({
   }, []);
 
   const peopleCount = Math.max(room.participant_count, present.length + 1);
-  const questions = topic?.sample_questions ?? [];
 
   // Owner moderation from the speaker tiles (optimistic mute state + issue command).
   const toggleMemberMute = (id: string) => {
@@ -643,9 +643,9 @@ function RoomLive({
         </aside>
       </div>
 
-      {/* Topic detail — questions come from the database (topic.sample_questions) */}
+      {/* Topic detail — questions come from the topic's documentation (PRD §8.2) */}
       <div id="topic-section" className="scroll-mt-24">
-        <TopicDetailCard topic={topic} questions={questions} onUse={(t) => setDraft(t)} />
+        <TopicDetailCard topic={topic} topicId={topicId} onUse={(t) => setDraft(t)} />
       </div>
 
       {/* Translate + AI */}
@@ -840,13 +840,22 @@ function EmptySeat() {
 
 function TopicDetailCard({
   topic,
-  questions,
+  topicId,
   onUse,
 }: {
   topic: Topic | null;
-  questions: readonly string[];
+  topicId: string | null;
   onUse: (text: string) => void;
 }) {
+  // Questions live in the topic's published documentation (PRD §8.2). Fetching
+  // the flat feed keeps this card to a single request, answer templates included.
+  const questionsQ = useQuery({
+    queryKey: ["questions", topicId],
+    queryFn: () => listQuestions(topicId ?? undefined),
+    enabled: topicId != null,
+  });
+  const questions = questionsQ.data ?? [];
+
   return (
     <div className="mt-5 rounded-4xl border border-border bg-card p-5 sm:p-7">
       <div className="flex items-start gap-4">
@@ -882,24 +891,36 @@ function TopicDetailCard({
             {questions.length}
           </span>
         </div>
-        {questions.length === 0 ? (
+        {questionsQ.isLoading ? (
+          <div className="mt-3 h-16 rounded-2xl bg-card border border-border animate-pulse" />
+        ) : questions.length === 0 ? (
           <p className="mt-3 text-sm text-muted-foreground">
             No questions for this topic yet — an admin can add them.
           </p>
         ) : (
           <ul className="mt-3 grid sm:grid-cols-2 gap-2">
             {questions.map((q) => (
-              <li
-                key={q}
-                className="flex items-start justify-between gap-2 rounded-2xl border border-border bg-card px-3 py-2"
-              >
-                <span className="text-sm leading-snug">{q}</span>
-                <button
-                  onClick={() => onUse(q)}
-                  className="shrink-0 text-[10px] uppercase tracking-wider rounded-full bg-primary/10 text-primary hover:bg-primary/20 px-2 py-1"
-                >
-                  Use
-                </button>
+              <li key={q.id} className="rounded-2xl border border-border bg-card px-3 py-2">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-sm leading-snug">{q.text}</span>
+                  <button
+                    onClick={() => onUse(q.text)}
+                    className="shrink-0 text-[10px] uppercase tracking-wider rounded-full bg-primary/10 text-primary hover:bg-primary/20 px-2 py-1"
+                  >
+                    Use
+                  </button>
+                </div>
+                {/* A sentence shape the learner can copy straight into the chat. */}
+                {q.answer_templates.map((tpl) => (
+                  <button
+                    key={tpl.id}
+                    onClick={() => onUse(tpl.example ?? tpl.template)}
+                    title="Use this sentence shape"
+                    className="mt-1.5 block w-full text-left text-xs text-muted-foreground hover:text-primary"
+                  >
+                    💡 {tpl.template}
+                  </button>
+                ))}
               </li>
             ))}
           </ul>

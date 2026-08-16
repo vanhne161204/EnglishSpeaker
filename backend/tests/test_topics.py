@@ -48,3 +48,44 @@ async def test_topic_get_update_delete(admin_client: AsyncClient) -> None:
 async def test_update_unknown_topic_returns_404(admin_client: AsyncClient) -> None:
     resp = await admin_client.patch(f"/api/v1/topics/{uuid.uuid4()}", json={"title": "x"})
     assert resp.status_code == 404
+
+
+async def test_topics_sort_by_sort_order_then_title(admin_client: AsyncClient) -> None:
+    await admin_client.post(
+        "/api/v1/topics", json={"slug": "z", "title": "Zebra", "sort_order": 0}
+    )
+    await admin_client.post(
+        "/api/v1/topics", json={"slug": "a", "title": "Apple", "sort_order": 5}
+    )
+
+    titles = [t["title"] for t in (await admin_client.get("/api/v1/topics")).json()]
+    assert titles == ["Zebra", "Apple"]
+
+
+async def test_list_topics_filters_by_category(admin_client: AsyncClient) -> None:
+    category = (
+        await admin_client.post("/api/v1/categories", json={"slug": "work", "name": "Work"})
+    ).json()
+    await admin_client.post(
+        "/api/v1/topics",
+        json={"slug": "interview", "title": "Interview", "category_id": category["id"]},
+    )
+    await admin_client.post("/api/v1/topics", json={"slug": "loose", "title": "Loose"})
+
+    in_category = (
+        await admin_client.get("/api/v1/topics", params={"category_id": category["id"]})
+    ).json()
+    assert [t["title"] for t in in_category] == ["Interview"]
+
+
+async def test_topic_accepts_cover_image(admin_client: AsyncClient) -> None:
+    created = await admin_client.post(
+        "/api/v1/topics",
+        json={
+            "slug": "food",
+            "title": "Food",
+            "cover_image_url": "https://example.com/food.jpg",
+        },
+    )
+    assert created.status_code == 201
+    assert created.json()["cover_image_url"] == "https://example.com/food.jpg"
