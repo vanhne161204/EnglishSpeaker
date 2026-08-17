@@ -206,6 +206,27 @@ The questions in a doc's `questions` section are the single source of the
 questions shown in Warm-up Practice (8.12) and in a room's topic panel (8.3).
 There is no separate question list on the topic itself.
 
+In a room, each question is shown next to its sample answer, side by side and
+numbered. The learner can tap either one to drop it into the chat box — the
+question to ask their partner, the answer to say themselves.
+
+### Writing questions the easy way
+
+Most of an admin's work is writing questions, so that job must not require
+building the doc structure by hand.
+
+The admin picks a topic and sees a numbered list of empty rows. Each row has two
+boxes: the **question** and one **sample answer**. They type, press Save, and the
+questions are live.
+
+Everything else happens for them: the doc is created if the topic has none, the
+`questions` section is created if it is missing, and the doc is published so
+learners see the questions straight away. Saving replaces the whole list, so
+clearing a row removes that question.
+
+Vocabulary, phrases, and tips are still available, but folded away under
+"Advanced" — they are the rarer job and should not crowd the common one.
+
 ## 8.3 Rooms
 
 A room is a place where people can join and make a conversation.
@@ -378,6 +399,7 @@ Users should be able to save:
 - A useful sentence from another user
 - A topic question
 - A phrase they want to remember
+- A word or phrase in two languages, saved from the in-room translator (8.10)
 
 Users should be able to:
 
@@ -398,6 +420,36 @@ Improved sentence:
 "I really like traveling."
 
 The user can save the improved sentence as a note.
+
+### Two kinds of note
+
+A note is one of two things, and the app shows each one differently:
+
+| Kind | Holds | Shown as |
+|---|---|---|
+| Correction | What the user said, and the better version | The old sentence crossed out, the better one below |
+| Translation | The same word or phrase in two languages | Both sides, each labelled with its language |
+
+A correction crosses out the original because it was wrong. A translation must
+**not** cross anything out — both sides are correct, they are just in different
+languages. Getting this wrong would tell the learner their own language is a
+mistake.
+
+### Saving a translation
+
+While talking, a user often looks a word up in the in-room translator (8.10).
+After the translation appears, a "Save to notes" button keeps both halves
+together, with the room's topic attached.
+
+Example:
+
+| Tiếng Việt | English |
+|---|---|
+| tôi thích du lịch | I like traveling |
+
+Over time this becomes the user's own English–Vietnamese wordbook, grouped by
+topic. Users can also add a pair by hand on the notes page, and edit either side
+later.
 
 ## 8.8 AI Assistance
 

@@ -47,6 +47,27 @@ export function modeLabel(mode: ConversationMode): string {
   return mode === "incognito" ? "Incognito" : "Normal";
 }
 
+/** Languages offered by the in-room translator (PRD §8.10). */
+export const LANGS = [
+  { code: "en", label: "English" },
+  { code: "vi", label: "Tiếng Việt" },
+  { code: "es", label: "Español" },
+  { code: "fr", label: "Français" },
+  { code: "ja", label: "日本語" },
+  { code: "ko", label: "한국어" },
+] as const;
+
+/**
+ * Friendly language name from a stored code, e.g. `"vi"` → `"Tiếng Việt"`.
+ *
+ * Falls back to the code in upper case so a note saved with a language we no
+ * longer list still reads sensibly instead of showing a blank label.
+ */
+export function langLabel(code: string | null | undefined): string {
+  if (!code) return "";
+  return LANGS.find((l) => l.code === code)?.label ?? code.toUpperCase();
+}
+
 /** English levels offered in profile setup and matching (PRD §8.6). */
 export const LEVELS = [
   "beginner",

@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useIdentity } from "@/lib/identity";
 import {
   ApiError,
@@ -20,7 +20,9 @@ import {
   deleteTopic,
   getTopicDoc,
   listCategories,
+  listTopicQA,
   listTopics,
+  saveTopicQA,
   updateCategory,
   updateDoc,
   updateSection,
@@ -47,8 +49,15 @@ export const Route = createFileRoute("/admin")({
   component: AdminPage,
 });
 
-const TABS = ["categories", "topics", "documentation"] as const;
+const TABS = ["categories", "topics", "content"] as const;
 type Tab = (typeof TABS)[number];
+
+/** Tab labels. "content" leads with the job admins actually do most: questions. */
+const TAB_LABELS: Record<Tab, string> = {
+  categories: "Categories",
+  topics: "Topics",
+  content: "Questions & answers",
+};
 
 /** Section types, with a plain-English hint about what each one holds (PRD §8.2). */
 const SECTION_TYPES: { readonly type: DocSectionType; readonly hint: string }[] = [
@@ -78,18 +87,18 @@ function AdminPage() {
         <span className="chip">Admin</span>
         <h1 className="mt-4 text-4xl sm:text-5xl text-ink">Content management</h1>
         <p className="mt-3 max-w-2xl text-muted-foreground">
-          Group topics into categories, create the topics learners practice, and write each topic's
-          documentation — the vocabulary, questions, and sample answers a learner leans on, and the
-          trusted content the AI coach grounds its suggestions in (PRD §8.1, §8.2).
+          Group topics into categories, create the topics learners practice, then give each topic a
+          few questions with a sample answer. Those questions show up in the room and in Warm-up,
+          and the AI coach uses them to ground its suggestions (PRD §8.1, §8.2).
         </p>
         <div className="mt-6 inline-flex rounded-full border border-border bg-card p-1">
           {TABS.map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`rounded-full px-5 py-2 text-sm font-medium capitalize ${tab === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              className={`rounded-full px-5 py-2 text-sm font-medium ${tab === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
             >
-              {t}
+              {TAB_LABELS[t]}
             </button>
           ))}
         </div>
@@ -98,7 +107,7 @@ function AdminPage() {
       <section className="container-page py-6">
         {tab === "categories" && <CategoriesManager />}
         {tab === "topics" && <TopicsManager />}
-        {tab === "documentation" && <DocManager />}
+        {tab === "content" && <ContentManager />}
       </section>
     </>
   );
@@ -485,12 +494,13 @@ function TopicRow({
   );
 }
 
-/* ---------------- Documentation (PRD §8.2) ---------------- */
+/* ---------------- Questions & answers (PRD §8.1) ---------------- */
 
-function DocManager() {
+function ContentManager() {
   const topicsQ = useQuery({ queryKey: ["topics"], queryFn: () => listTopics() });
   const topics = topicsQ.data ?? [];
   const [topicId, setTopicId] = useState<string>("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const activeTopicId = topicId || topics[0]?.id || "";
   const activeTopic = topics.find((t) => t.id === activeTopicId) ?? null;
 
@@ -498,7 +508,7 @@ function DocManager() {
   if (topics.length === 0) {
     return (
       <EmptyCard icon="📚" title="Create a topic first">
-        Documentation belongs to a topic. Add one on the Topics tab, then come back.
+        Questions belong to a topic. Add one on the Topics tab, then come back.
       </EmptyCard>
     );
   }
@@ -520,7 +530,172 @@ function DocManager() {
         </select>
       </label>
 
-      {activeTopic && <DocEditor key={activeTopic.id} topic={activeTopic} />}
+      {activeTopic && <QAEditor key={activeTopic.id} topic={activeTopic} />}
+
+      {/* The full section editor is still here for vocabulary, phrases, and tips —
+          just folded away, so the common job (questions) is the whole screen. */}
+      <div className="pt-2">
+        <button
+          onClick={() => setShowAdvanced((v) => !v)}
+          className="text-sm font-semibold text-muted-foreground hover:text-foreground"
+        >
+          {showAdvanced ? "▾" : "▸"} Advanced — vocabulary, phrases, and tips
+        </button>
+        {showAdvanced && activeTopic && (
+          <div className="mt-4">
+            <DocEditor key={`adv-${activeTopic.id}`} topic={activeTopic} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** How many blank rows to show, so an admin always sees room for a full set. */
+const DEFAULT_QA_ROWS = 5;
+
+interface QARow {
+  /** Stable React key. Server rows reuse their id; new rows get a generated one. */
+  readonly key: string;
+  text: string;
+  answer: string;
+}
+
+function blankRow(): QARow {
+  return { key: `new-${Math.random().toString(36).slice(2)}`, text: "", answer: "" };
+}
+
+/** Pad to `DEFAULT_QA_ROWS` so the form never looks empty or cramped. */
+function padRows(rows: QARow[]): QARow[] {
+  const padded = [...rows];
+  while (padded.length < DEFAULT_QA_ROWS) padded.push(blankRow());
+  return padded;
+}
+
+/**
+ * The simple editor: a numbered list of question/answer pairs, one Save button.
+ *
+ * It hides the doc tree entirely. `PUT /topics/{id}/questions` creates the doc and
+ * the questions section on the server, so an admin types pairs and nothing else.
+ */
+function QAEditor({ topic }: { topic: Topic }) {
+  const qc = useQueryClient();
+  const qaQ = useQuery({ queryKey: ["topic-qa", topic.id], queryFn: () => listTopicQA(topic.id) });
+  const [rows, setRows] = useState<QARow[]>(() => padRows([]));
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  // Reload the form whenever the server copy changes — on first load, and again
+  // after a save, so what's on screen is always what's stored.
+  useEffect(() => {
+    if (!qaQ.data) return;
+    setRows(padRows(qaQ.data.map((p) => ({ key: p.id, text: p.text, answer: p.answer ?? "" }))));
+  }, [qaQ.data]);
+
+  const saveM = useMutation({
+    mutationFn: () =>
+      saveTopicQA(
+        topic.id,
+        // Blank rows are just unused slots, not content — drop them.
+        rows
+          .filter((r) => r.text.trim())
+          .map((r) => ({ text: r.text.trim(), answer: r.answer.trim() || null })),
+      ),
+    onSuccess: () => {
+      setSavedAt(Date.now());
+      void qc.invalidateQueries({ queryKey: ["topic-qa", topic.id] });
+      // The room panel and Warm-up both read the published question feed.
+      void qc.invalidateQueries({ queryKey: ["questions"] });
+      void qc.invalidateQueries({ queryKey: ["topic-doc", topic.id] });
+    },
+  });
+
+  const update = (index: number, patch: Partial<QARow>) =>
+    setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  const removeRow = (index: number) =>
+    setRows((prev) => padRows(prev.filter((_, i) => i !== index)));
+
+  const filled = rows.filter((r) => r.text.trim()).length;
+
+  if (qaQ.isLoading) return <SkeletonRow />;
+  if (qaQ.isError) {
+    return <ErrorState message={(qaQ.error as Error).message} onRetry={() => void qaQ.refetch()} />;
+  }
+
+  return (
+    <div className="rounded-4xl border border-border bg-card p-6">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h3 className="text-xl text-ink">Questions &amp; answers</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Write a question and one sample answer a learner can copy. These show in the room and in
+            Warm-up. Saving publishes them right away.
+          </p>
+        </div>
+        <span className="text-xs text-muted-foreground whitespace-nowrap">
+          {filled} question{filled === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      <div className="mt-5 space-y-3">
+        {rows.map((row, index) => (
+          <div
+            key={row.key}
+            className="rounded-3xl border border-border bg-background p-4 flex gap-3"
+          >
+            <div className="flex-none h-7 w-7 rounded-full bg-primary/10 text-primary inline-flex items-center justify-center text-xs font-semibold">
+              {index + 1}
+            </div>
+            <div className="min-w-0 flex-1 space-y-2">
+              <input
+                value={row.text}
+                onChange={(e) => update(index, { text: e.target.value })}
+                placeholder="Question — e.g. What is your favourite food?"
+                className="w-full rounded-2xl border border-border bg-card px-3 py-2 text-sm font-medium focus:outline-none focus:border-primary"
+              />
+              <input
+                value={row.answer}
+                onChange={(e) => update(index, { answer: e.target.value })}
+                placeholder="Sample answer — e.g. My favourite food is pizza."
+                className="w-full rounded-2xl border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:border-primary"
+              />
+            </div>
+            <button
+              onClick={() => removeRow(index)}
+              title="Remove this question"
+              aria-label={`Remove question ${index + 1}`}
+              className="flex-none self-start rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-destructive hover:border-destructive/40"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 flex items-center gap-3 flex-wrap">
+        <button
+          onClick={() => setRows((prev) => [...prev, blankRow()])}
+          className="rounded-full border border-border px-4 py-2 text-sm font-semibold hover:bg-muted"
+        >
+          + Add another
+        </button>
+        <button
+          disabled={saveM.isPending}
+          onClick={() => saveM.mutate()}
+          className="rounded-full bg-primary px-6 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+        >
+          {saveM.isPending ? "Saving…" : "Save questions"}
+        </button>
+        {savedAt && !saveM.isPending && !saveM.isError && (
+          <span className="text-sm text-muted-foreground">Saved ✓</span>
+        )}
+      </div>
+
+      {saveM.isError && (
+        <p className="mt-3 text-sm text-destructive">{(saveM.error as Error).message}</p>
+      )}
+      <p className="mt-3 text-xs text-muted-foreground">
+        Saving replaces the whole list — a question you clear here is removed for learners too.
+      </p>
     </div>
   );
 }

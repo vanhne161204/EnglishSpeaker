@@ -19,9 +19,10 @@ import {
   type NoteCreate,
   type Room,
   type Topic,
+  type TopicQuestion,
 } from "@/lib/api";
 import { ensureUser, randomGuestName } from "@/lib/identity";
-import { topicEmoji } from "@/lib/presentation";
+import { LANGS, topicEmoji } from "@/lib/presentation";
 import { useAiVoice } from "@/lib/voice/use-ai-voice";
 import { useRoomVoice } from "@/lib/voice/use-room-voice";
 import { VOICE_FILTERS, voiceFilterLabel, type VoiceFilterId } from "@/lib/voice/voice-mask";
@@ -651,7 +652,8 @@ function RoomLive({
       {/* Translate + AI */}
       <div className="mt-5 grid lg:grid-cols-2 gap-5 items-start">
         <div id="translate-section" className="scroll-mt-24">
-          <TranslateCard />
+          {/* `saveNote` tags the note with the room's topic automatically. */}
+          <TranslateCard onSaveNote={saveNote} />
         </div>
         <div id="ai-section" className="scroll-mt-24 flex flex-col gap-5">
           <AiCoachCard
@@ -880,53 +882,115 @@ function TopicDetailCard({
       </div>
 
       <div className="mt-6 rounded-3xl border border-border bg-background/60 p-5">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="text-sm font-semibold flex items-center gap-2">
             <span className="h-7 w-7 rounded-full bg-primary text-primary-foreground inline-flex items-center justify-center text-xs">
               ?
             </span>
             Questions to ask
           </div>
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            {questions.length}
+          <span className="text-xs text-muted-foreground">
+            Tap a line to put it in the chat box
           </span>
         </div>
+
         {questionsQ.isLoading ? (
-          <div className="mt-3 h-16 rounded-2xl bg-card border border-border animate-pulse" />
+          <div className="mt-4 space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div
+                key={i}
+                className="h-20 rounded-2xl bg-card border border-border animate-pulse"
+              />
+            ))}
+          </div>
         ) : questions.length === 0 ? (
           <p className="mt-3 text-sm text-muted-foreground">
             No questions for this topic yet — an admin can add them.
           </p>
         ) : (
-          <ul className="mt-3 grid sm:grid-cols-2 gap-2">
-            {questions.map((q) => (
-              <li key={q.id} className="rounded-2xl border border-border bg-card px-3 py-2">
-                <div className="flex items-start justify-between gap-2">
-                  <span className="text-sm leading-snug">{q.text}</span>
-                  <button
-                    onClick={() => onUse(q.text)}
-                    className="shrink-0 text-[10px] uppercase tracking-wider rounded-full bg-primary/10 text-primary hover:bg-primary/20 px-2 py-1"
-                  >
-                    Use
-                  </button>
-                </div>
-                {/* A sentence shape the learner can copy straight into the chat. */}
-                {q.answer_templates.map((tpl) => (
-                  <button
-                    key={tpl.id}
-                    onClick={() => onUse(tpl.example ?? tpl.template)}
-                    title="Use this sentence shape"
-                    className="mt-1.5 block w-full text-left text-xs text-muted-foreground hover:text-primary"
-                  >
-                    💡 {tpl.template}
-                  </button>
-                ))}
-              </li>
+          <ol className="mt-4 space-y-2.5">
+            {questions.map((q, index) => (
+              <QuestionAnswerRow key={q.id} question={q} index={index} onUse={onUse} />
             ))}
-          </ul>
+          </ol>
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * One numbered question with its sample answer, side by side.
+ *
+ * Both halves are buttons: the question is what you *ask* your partner, the
+ * answer is a sentence you can *say* — clicking either drops it into the chat
+ * box, so a learner who freezes always has something to send (PRD §8.2).
+ */
+function QuestionAnswerRow({
+  question,
+  index,
+  onUse,
+}: {
+  question: TopicQuestion;
+  index: number;
+  onUse: (text: string) => void;
+}) {
+  const answer = question.answer_templates[0];
+
+  return (
+    <li className="rounded-2xl border border-border bg-card p-3 sm:p-4">
+      <div className="flex gap-3">
+        <span className="flex-none h-6 w-6 rounded-full bg-primary/10 text-primary inline-flex items-center justify-center text-[11px] font-semibold">
+          {index + 1}
+        </span>
+        <div className="min-w-0 flex-1 grid sm:grid-cols-2 gap-2 sm:gap-4">
+          <button
+            onClick={() => onUse(question.text)}
+            title="Ask this question"
+            className="text-left group"
+          >
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Question
+            </div>
+            <div className="mt-0.5 text-sm font-medium leading-snug group-hover:text-primary">
+              {question.text}
+            </div>
+            {question.translation && (
+              <div className="mt-0.5 text-xs text-muted-foreground italic">
+                {question.translation}
+              </div>
+            )}
+          </button>
+
+          {answer ? (
+            <button
+              onClick={() => onUse(answer.example ?? answer.template)}
+              title="Say this answer"
+              className="text-left group sm:border-l sm:border-border sm:pl-4"
+            >
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                Sample answer
+              </div>
+              <div className="mt-0.5 text-sm leading-snug text-muted-foreground group-hover:text-primary">
+                {answer.template}
+              </div>
+              {answer.example && (
+                <div className="mt-0.5 text-xs text-muted-foreground">e.g. {answer.example}</div>
+              )}
+            </button>
+          ) : (
+            <div className="sm:border-l sm:border-border sm:pl-4">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                Sample answer
+              </div>
+              <div className="mt-0.5 text-sm text-muted-foreground/60 italic">
+                Not added yet — answer in your own words.
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </li>
   );
 }
 
@@ -1176,16 +1240,7 @@ function MicButton({
 
 /* ---------- Translate (real /translate) ---------- */
 
-const LANGS = [
-  { code: "en", label: "English" },
-  { code: "vi", label: "Tiếng Việt" },
-  { code: "es", label: "Español" },
-  { code: "fr", label: "Français" },
-  { code: "ja", label: "日本語" },
-  { code: "ko", label: "한국어" },
-];
-
-function TranslateCard() {
+function TranslateCard({ onSaveNote }: { onSaveNote: (note: NoteCreate) => void }) {
   const [from, setFrom] = useState("vi");
   const [to, setTo] = useState("en");
   const [text, setText] = useState("");
@@ -1193,6 +1248,8 @@ function TranslateCard() {
   const [provider, setProvider] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Reset when the pair changes so one click can't save a stale translation twice.
+  const [saved, setSaved] = useState(false);
 
   const swap = () => {
     setFrom(to);
@@ -1200,6 +1257,7 @@ function TranslateCard() {
     setText(out || text);
     setOut("");
     setProvider(null);
+    setSaved(false);
   };
 
   const run = async () => {
@@ -1207,6 +1265,7 @@ function TranslateCard() {
     if (!t) return;
     setLoading(true);
     setErr(null);
+    setSaved(false);
     try {
       const res = await translate({ text: t, source_lang: from, target_lang: to });
       setOut(res.translated_text);
@@ -1216,6 +1275,18 @@ function TranslateCard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  /** Keep both halves and their languages, so notes can label each side. */
+  const savePair = () => {
+    onSaveNote({
+      original_text: text.trim(),
+      translated_text: out,
+      source_lang: from,
+      target_lang: to,
+      source: "translation",
+    });
+    setSaved(true);
   };
 
   return (
@@ -1263,7 +1334,18 @@ function TranslateCard() {
         </div>
       </div>
 
-      <div className="mt-3 flex items-center justify-end">
+      <div className="mt-3 flex items-center justify-end gap-2 flex-wrap">
+        {/* Saving the pair builds the learner's own wordbook (PRD §8.7). */}
+        {out && !err && (
+          <button
+            onClick={savePair}
+            disabled={saved}
+            title="Keep this pair in your notes"
+            className="rounded-full border border-border px-4 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-60"
+          >
+            {saved ? "Saved ✓" : "＋ Save to notes"}
+          </button>
+        )}
         <button
           onClick={run}
           disabled={loading || !text.trim()}

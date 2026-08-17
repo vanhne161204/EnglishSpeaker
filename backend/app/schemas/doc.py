@@ -82,6 +82,34 @@ class TopicQuestionRead(QuestionRead):
     topic_title: str
 
 
+# --- Simple question-and-answer editing (PRD §8.1) --------------------------
+#
+# Authoring a question through the tree means four calls: create the doc, add a
+# `questions` section, add the question, add its answer template. Admins write
+# plain question-and-answer pairs, so these schemas back a single call that does
+# all four steps. The tree is still the storage; this is just a flatter door.
+
+
+class QAPair(BaseModel):
+    """One question with its sample answer, as an admin types it."""
+
+    text: str = Field(min_length=1)
+    # Optional so an admin can save a question before they've written its answer.
+    # A blank answer stores no answer template at all.
+    answer: str | None = None
+
+
+class QAPairRead(QAPair):
+    id: uuid.UUID
+    sort_order: int
+
+
+class QASet(BaseModel):
+    """The complete question list for a topic — saving replaces what was there."""
+
+    items: list[QAPair] = Field(default_factory=list, max_length=50)
+
+
 # --- Doc items (vocabulary / phrases) ---------------------------------------
 
 

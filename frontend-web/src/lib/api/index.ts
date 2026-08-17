@@ -33,6 +33,8 @@ import type {
   NoteCreate,
   NoteUpdate,
   PlanTier,
+  QAPair,
+  QAPairRead,
   Question,
   QuestionCreate,
   QuestionUpdate,
@@ -90,6 +92,16 @@ export const createTopic = (body: TopicCreate) =>
 export const updateTopic = (id: string, body: TopicUpdate) =>
   apiRequest<Topic>(`/topics/${id}`, { method: "PATCH", body });
 export const deleteTopic = (id: string) => apiRequest<void>(`/topics/${id}`, { method: "DELETE" });
+
+// ----- Simple question-and-answer editing (PRD §8.1) -----
+//
+// `GET` includes questions from a draft doc, so the admin editor loads what is
+// really stored. `PUT` replaces the whole list and builds any missing doc or
+// section itself — one call instead of four.
+export const listTopicQA = (topicId: string) =>
+  apiRequest<QAPairRead[]>(`/topics/${topicId}/questions`);
+export const saveTopicQA = (topicId: string, items: QAPair[]) =>
+  apiRequest<QAPairRead[]>(`/topics/${topicId}/questions`, { method: "PUT", body: { items } });
 
 // ----- Topic documentation (PRD §8.2) -----
 export const listDocs = (topicId?: string) =>

@@ -77,6 +77,35 @@ The topic's documentation with its **full tree** — sections, items, questions,
 answer templates in one response. `404` if the topic is unknown *or* has no doc
 yet (which is a normal state, not an error).
 
+### `GET /topics/{id}/questions` · `PUT /topics/{id}/questions`
+
+**The simple way to author questions.** Writing one question through the doc tree
+takes four calls (create doc → add `questions` section → add question → add answer
+template). Admins think in plain question/answer pairs, so these two endpoints do
+the same job in one call. Same storage underneath — just a flatter door.
+
+`GET` returns the topic's questions as flat pairs. Unlike `GET /questions` it
+**includes a draft doc**, so the admin editor loads what is really stored rather
+than silently overwriting it on the next save. A topic with no doc returns `[]`,
+not `404`.
+
+```json
+[{ "id": "…", "text": "What is your favourite food?", "answer": "My favourite food is pizza.", "sort_order": 0 }]
+```
+
+`PUT` replaces the whole list (admin). It creates the doc and the `questions`
+section if they don't exist, and sets the doc to `published` — saving questions is
+the admin saying they're ready, so they reach learners immediately. Questions
+missing from the body are deleted, along with their answer templates. Other
+sections (vocabulary, tips) are left untouched. `404` if the topic is unknown.
+
+```json
+{ "items": [{ "text": "What is your favourite food?", "answer": "My favourite food is pizza." }] }
+```
+
+`answer` is optional — a blank one saves the question with no answer template.
+Max 50 items. Blank `text` is rejected with `422`.
+
 ## Docs (Documentation Content)
 
 A topic's learning page (PRD §8.2). One topic has at most one doc. A doc is an
@@ -315,8 +344,29 @@ when installed; otherwise a labelled stub. Returns
 List and save sentence notes (PRD §8.7). The chat screen saves here when a user
 keeps an AI suggestion or long-presses a message.
 
+One shape covers both kinds of note. At least one of `original_text`,
+`improved_text`, or `translated_text` is required — otherwise `422`.
+
+**Correction** — what the user said plus the better version:
+
+```json
+{ "original_text": "I very like travel.", "improved_text": "I really enjoy travelling.", "source": "ai", "topic": "Travel" }
+```
+
+**Translation pair** — the same phrase in two languages, saved from the in-room
+translator (PRD §8.10). The language codes let the UI label each side rather than
+showing the user's own language as a mistake:
+
+```json
+{ "original_text": "tôi thích du lịch", "translated_text": "I like traveling", "source_lang": "vi", "target_lang": "en", "source": "translation", "topic": "Travel" }
+```
+
+`source_lang` / `target_lang` are short codes (max 10 chars) matching the
+translator's list: `en` · `vi` · `es` · `fr` · `ja` · `ko`.
+
 ### `PATCH /notes/{id}` · `DELETE /notes/{id}`
-Edit (partial) or delete a note. `404` if unknown; `DELETE` → `204`.
+Edit (partial: any of the fields above) or delete a note. `404` if unknown;
+`DELETE` → `204`.
 
 ## Realtime — WebSocket
 

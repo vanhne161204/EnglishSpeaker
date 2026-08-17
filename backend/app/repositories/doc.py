@@ -48,6 +48,14 @@ class DocRepository:
     async def count(self) -> int:
         return await self.session.scalar(select(func.count()).select_from(Doc)) or 0
 
+    async def flush(self) -> None:
+        """Push pending changes to the database without committing.
+
+        Needed when a caller must sequence deletes before inserts inside one
+        request — see ``DocService.replace_qa_pairs``.
+        """
+        await self.session.flush()
+
     # --- Sections -----------------------------------------------------------
 
     async def get_section(self, section_id: uuid.UUID) -> DocSection | None:

@@ -24,11 +24,27 @@ from app.schemas.doc import (
     DocSectionCreate,
     DocSectionUpdate,
     DocUpdate,
+    QAPairRead,
+    QASet,
     QuestionCreate,
     QuestionRead,
     QuestionUpdate,
     TopicQuestionRead,
 )
+
+# Heading given to the `questions` section the simple editor creates for a topic.
+_QUESTIONS_SECTION_TITLE = "Conversation questions"
+
+
+def _to_qa_pair(question: Question) -> QAPairRead:
+    """Flatten a question and its first answer template into one editable pair."""
+    first = question.answer_templates[0] if question.answer_templates else None
+    return QAPairRead(
+        id=question.id,
+        text=question.text,
+        answer=first.template if first else None,
+        sort_order=question.sort_order,
+    )
 
 
 class DocService:
@@ -156,6 +172,87 @@ class DocService:
         if question is None:
             raise NotFoundError("Question not found")
         return question
+
+    # --- Simple question-and-answer editing (PRD §8.1) ----------------------
+
+    async def list_qa_pairs(self, topic_id: uuid.UUID) -> list[QAPairRead]:
+        """Every question on a topic as a flat question/answer pair.
+
+        Unlike ``list_topic_questions`` this ignores the doc's status, because the
+        admin editor must load what is actually stored — including a draft — or
+        saving would silently wipe it.
+        """
+        if await self.topics.get(topic_id) is None:
+            raise NotFoundError("Topic not found")
+        doc = await self.docs.get_by_topic(topic_id)
+        if doc is None:
+            return []
+        return [
+            _to_qa_pair(question)
+            for section in doc.sections
+            if DocSectionType(section.type).holds_questions
+            for question in section.questions
+        ]
+
+    async def replace_qa_pairs(self, topic_id: uuid.UUID, payload: QASet) -> list[QAPairRead]:
+        """Save a topic's whole question list in one call.
+
+        Creates whatever the tree needs along the way — the doc, and a
+        ``questions`` section — so an admin never has to build the scaffolding by
+        hand. Saving *replaces* the list: questions that are no longer in
+        ``payload`` are deleted, along with their answer templates.
+        """
+        topic = await self.topics.get(topic_id)
+        if topic is None:
+            raise NotFoundError("Topic not found")
+
+        doc = await self.docs.get_by_topic(topic_id)
+        if doc is None:
+            doc = await self.docs.add(
+                Doc(topic_id=topic_id, title=topic.title, level=topic.level, sections=[])
+            )
+        # Questions only reach learners from a published doc, and saving questions
+        # is the admin saying "these are ready" — so publish rather than leave a
+        # draft that silently shows nothing.
+        doc.status = ContentStatus.published.value
+
+        section = next(
+            (s for s in doc.sections if DocSectionType(s.type).holds_questions), None
+        )
+        if section is None:
+            section = await self.docs.add_section(
+                DocSection(
+                    doc_id=doc.id,
+                    type=DocSectionType.questions.value,
+                    title=_QUESTIONS_SECTION_TITLE,
+                    sort_order=len(doc.sections),
+                    items=[],
+                    questions=[],
+                )
+            )
+
+        # Clearing the collection orphans the old rows, so the flush deletes them
+        # (and cascades to their answer templates) before the new ones go in.
+        section.questions.clear()
+        await self.docs.flush()
+
+        for order, item in enumerate(payload.items):
+            answer = (item.answer or "").strip()
+            # Append to the collection rather than setting ``section_id``: that
+            # keeps the in-memory list in step with the database, so the response
+            # below sees the new rows.
+            section.questions.append(
+                Question(
+                    text=item.text.strip(),
+                    sort_order=order,
+                    answer_templates=(
+                        [AnswerTemplate(template=answer, sort_order=0)] if answer else []
+                    ),
+                )
+            )
+        await self.docs.flush()  # assign ids before they're read back
+
+        return [_to_qa_pair(question) for question in section.questions]
 
     async def create_question(self, payload: QuestionCreate) -> Question:
         section = await self.get_section(payload.section_id)

@@ -9,7 +9,7 @@ from app.api.deps import get_doc_service, get_topic_service, require_admin
 from app.models.doc import Doc
 from app.models.topic import Topic
 from app.models.user import User
-from app.schemas.doc import DocRead
+from app.schemas.doc import DocRead, QAPairRead, QASet
 from app.schemas.topic import TopicCreate, TopicRead, TopicUpdate
 from app.services.doc import DocService
 from app.services.topic import TopicService
@@ -59,6 +59,36 @@ async def get_topic_doc(
 ) -> Doc:
     # 404 both when the topic is unknown and when it has no doc yet (PRD §8.2).
     return await service.get_doc_for_topic(topic_id)
+
+
+@router.get(
+    "/{topic_id}/questions",
+    response_model=list[QAPairRead],
+    summary="A topic's questions and answers, as flat pairs",
+)
+async def list_topic_qa(
+    topic_id: uuid.UUID,
+    service: DocService = Depends(get_doc_service),
+) -> list[QAPairRead]:
+    # Includes questions from a draft doc, so the admin editor loads what is
+    # really stored rather than silently overwriting it on the next save.
+    return await service.list_qa_pairs(topic_id)
+
+
+@router.put(
+    "/{topic_id}/questions",
+    response_model=list[QAPairRead],
+    summary="Replace a topic's questions and answers (admin)",
+)
+async def replace_topic_qa(
+    topic_id: uuid.UUID,
+    payload: QASet,
+    service: DocService = Depends(get_doc_service),
+    _: User = Depends(require_admin),
+) -> list[QAPairRead]:
+    # One call does what the doc tree would need four for: it creates the doc and
+    # the `questions` section if they're missing, then saves the whole list.
+    return await service.replace_qa_pairs(topic_id, payload)
 
 
 @router.patch("/{topic_id}", response_model=TopicRead, summary="Edit a topic (admin)")

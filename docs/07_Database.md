@@ -523,18 +523,29 @@ CREATE TABLE transcript_segments_2026_06
 CREATE TABLE sentence_notes (
     id             uuid PRIMARY KEY,
     user_id        uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    original_text  text,
-    improved_text  text,
-    source         note_source NOT NULL DEFAULT 'self',
-    topic_id       uuid REFERENCES topics(id) ON DELETE SET NULL,   -- grouping by topic (PRD §8.7)
-    session_id     uuid REFERENCES conversation_sessions(id) ON DELETE SET NULL,
-    tags           text[] NOT NULL DEFAULT '{}',
-    created_at     timestamptz NOT NULL DEFAULT now(),
-    updated_at     timestamptz NOT NULL DEFAULT now(),
-    deleted_at     timestamptz,                                     -- (soft-delete)
-    CONSTRAINT ck_notes_has_text CHECK (original_text IS NOT NULL OR improved_text IS NOT NULL)
+    original_text   text,                                           -- what the user said, or the source text
+    improved_text   text,                                           -- the better version (correction note)
+    -- Translation pair saved from the in-room translator (PRD §8.10). NULL on a
+    -- correction note; the language codes are what tell the two kinds apart.
+    translated_text text,
+    source_lang     varchar(10),                                    -- e.g. 'vi'
+    target_lang     varchar(10),                                    -- e.g. 'en'
+    source          note_source NOT NULL DEFAULT 'self',
+    topic_id        uuid REFERENCES topics(id) ON DELETE SET NULL,  -- grouping by topic (PRD §8.7)
+    session_id      uuid REFERENCES conversation_sessions(id) ON DELETE SET NULL,
+    tags            text[] NOT NULL DEFAULT '{}',
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now(),
+    deleted_at      timestamptz,                                    -- (soft-delete)
+    CONSTRAINT ck_notes_has_text CHECK (
+        original_text IS NOT NULL OR improved_text IS NOT NULL OR translated_text IS NOT NULL
+    )
 );
 ```
+
+| Notes |
+|-------|
+| A note is a **correction** (`improved_text`) or a **translation pair** (`translated_text`), never both. The UI crosses out `original_text` only for a correction — a translation's source side is correct, just in another language. |
 
 ### 6.8 AI Interactions and Feedback
 

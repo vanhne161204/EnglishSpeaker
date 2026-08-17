@@ -119,6 +119,24 @@ export type TopicQuestion = Question & {
   topic_title: string;
 };
 
+// ----- Simple question-and-answer editing (PRD §8.1) -----
+//
+// Authoring through the tree takes four calls (doc → section → question →
+// answer template). Admins think in plain question/answer pairs, so these back a
+// single call that does all four steps. Same storage, flatter door.
+
+/** One question with its sample answer, as an admin types it. */
+export type QAPair = {
+  text: string;
+  /** Blank means "no sample answer yet" — the question is still saved. */
+  answer?: string | null;
+};
+
+export type QAPairRead = QAPair & {
+  id: string;
+  sort_order: number;
+};
+
 export type QuestionCreate = {
   section_id: string;
   text: string;
@@ -319,10 +337,19 @@ export type MatchRequest = {
 };
 
 // ----- Sentence notes -----
+//
+// One shape covers both kinds of note (PRD §8.7):
+//   correction  — `original_text` (what you said) + `improved_text` (the better version)
+//   translation — `original_text` in `source_lang` + `translated_text` in `target_lang`,
+//                 saved from the in-room translator as an English/Vietnamese wordbook
+// The language codes are what tell them apart.
 export type Note = {
   id: string;
   original_text: string | null;
   improved_text: string | null;
+  translated_text: string | null;
+  source_lang: string | null;
+  target_lang: string | null;
   source: string;
   topic: string | null;
   created_at: string;
@@ -331,16 +358,14 @@ export type Note = {
 export type NoteCreate = {
   original_text?: string | null;
   improved_text?: string | null;
+  translated_text?: string | null;
+  source_lang?: string | null;
+  target_lang?: string | null;
   source?: string;
   topic?: string | null;
 };
 
-export type NoteUpdate = {
-  original_text?: string | null;
-  improved_text?: string | null;
-  source?: string;
-  topic?: string | null;
-};
+export type NoteUpdate = NoteCreate;
 
 // ----- Subscription -----
 export type PlanLimits = {

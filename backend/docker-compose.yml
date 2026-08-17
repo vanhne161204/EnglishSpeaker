@@ -29,7 +29,7 @@ services:
       POSTGRES_PASSWORD: englishtalker
       POSTGRES_DB: englishtalker
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
