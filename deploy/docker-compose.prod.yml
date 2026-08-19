@@ -3,6 +3,15 @@
 #
 # The `api` image is built by CI and pulled from GHCR — do NOT build on the box.
 # Replace OWNER below with your GitHub username/org (lowercase).
+#
+# Run it with `--env-file .env.prod`:
+#
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
+#
+# `env_file:` only injects variables INTO a container. The `${VAR}` placeholders
+# below are substituted by Compose itself, which reads `.env` unless you pass
+# `--env-file`. Without the flag they expand to empty strings, and coturn would
+# start with flags like `--realm=`.
 
 services:
   api:
@@ -34,6 +43,35 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
+
+  # TURN relay for room voice (see docs/DEPLOYMENT.md §10).
+  #
+  # Without this, WebRTC only has STUN, so a call works between two browsers on
+  # one machine but fails between two devices — mobile carriers and most office
+  # networks use symmetric NAT, where no direct peer path exists.
+  #
+  # `network_mode: host` is required: coturn hands out its own IP/ports inside
+  # the ICE candidates, and Docker's bridge NAT would advertise unreachable
+  # container addresses. Set TURN_EXTERNAL_IP / TURN_REALM / TURN_USER /
+  # TURN_PASSWORD in `.env.prod`.
+  coturn:
+    image: coturn/coturn:4.6.2-alpine
+    network_mode: host
+    command:
+      - -n # no config file — everything is on this command line
+      - --log-file=stdout
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --realm=${TURN_REALM}
+      - --user=${TURN_USER}:${TURN_PASSWORD}
+      - --external-ip=${TURN_EXTERNAL_IP}
+      - --lt-cred-mech # long-term credentials: the username/password the browser sends
+      - --fingerprint
+      - --no-cli # no telnet admin port
+      - --no-tlsv1
+      - --no-tlsv1_1
     restart: unless-stopped
 
   caddy:

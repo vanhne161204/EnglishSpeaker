@@ -473,7 +473,21 @@ function RoomLive({
               ) : (
                 <button
                   onClick={() => void voice.join()}
-                  disabled={voice.status === "connecting"}
+                  disabled={
+                    voice.status === "connecting" ||
+                    !userId ||
+                    showIncognitoSetup ||
+                    showPasswordPrompt
+                  }
+                  title={
+                    !userId
+                      ? "Waiting for your profile…"
+                      : showIncognitoSetup
+                        ? "Finish incognito setup first"
+                        : showPasswordPrompt
+                          ? "Enter the room password first"
+                          : undefined
+                  }
                   className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-semibold hover:bg-muted disabled:opacity-50"
                 >
                   {voice.status === "connecting" ? "Joining…" : "🎙️ Join voice"}
@@ -500,10 +514,22 @@ function RoomLive({
               />
               <VoiceToggle
                 on={voice.speakerOn}
-                onClick={voice.toggleSpeaker}
+                onClick={() => {
+                  voice.toggleSpeaker();
+                  if (voice.speakerBlocked) voice.unlockSpeaker();
+                }}
                 onLabel="🔊 Speaker on"
                 offLabel="🔈 Speaker off"
               />
+              {voice.speakerBlocked && voice.speakerOn && (
+                <button
+                  type="button"
+                  onClick={voice.unlockSpeaker}
+                  className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:text-amber-200"
+                >
+                  Tap to hear others
+                </button>
+              )}
               {voice.voiceMasked && (
                 <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
                   🎭 Voice: {voiceFilterLabel(voiceFilter)}

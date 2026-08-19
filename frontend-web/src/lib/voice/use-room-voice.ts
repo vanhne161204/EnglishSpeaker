@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { voiceSocketUrl } from "@/lib/api";
+import { buildIceServers, hasTurnConfigured } from "@/lib/voice/ice-config";
 import { createVoiceMask, type VoiceFilterId, type VoiceMask } from "@/lib/voice/voice-mask";
 
 /** A remote participant in the voice call, as shown in the member list. */
@@ -36,6 +37,8 @@ export interface UseRoomVoiceResult {
   readonly members: readonly VoiceMember[];
   readonly micOn: boolean;
   readonly speakerOn: boolean;
+  /** Browser blocked remote audio autoplay — call `unlockSpeaker()` after a click. */
+  readonly speakerBlocked: boolean;
   /** True when the outbound voice is disguised for incognito privacy (§7.2). */
   readonly voiceMasked: boolean;
   /** True while the mic is force-muted by the AI-voice interlock (§8.8). */
@@ -48,6 +51,8 @@ export interface UseRoomVoiceResult {
   leave: () => void;
   toggleMic: () => void;
   toggleSpeaker: () => void;
+  /** Retry remote audio playback (needed when autoplay policy blocks the first play). */
+  unlockSpeaker: () => void;
   /** Force the mic off for an AI-voice session; the user's intent is preserved. */
   suspendMic: () => void;
   /** Release the AI-voice mic force-off, restoring the user's intent. */
@@ -56,8 +61,19 @@ export interface UseRoomVoiceResult {
   setHostMuted: (muted: boolean) => void;
 }
 
-/** Public STUN server for NAT traversal; host candidates cover same-machine tabs. */
-const ICE_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
+/** ICE config is built per join so env changes apply without a full reload. */
+const iceServers = (): RTCIceServer[] => buildIceServers();
+
+/**
+ * Shown when WebRTC cannot establish a media path.
+ *
+ * The two failures look identical to the user but have different fixes, so the
+ * message is chosen from whether a TURN relay is even configured.
+ */
+const connectFailedMessage = (): string =>
+  hasTurnConfigured()
+    ? "Could not connect voice to the other device. The TURN relay did not answer — check that it is running and reachable on its ports (see docs/DEPLOYMENT.md §10)."
+    : "Could not connect voice to the other device. Calls between two devices need a TURN relay, and none is configured. Set VITE_TURN_URL / VITE_TURN_USERNAME / VITE_TURN_CREDENTIAL for this deployment (see docs/DEPLOYMENT.md §10). Two browsers on one machine work without it.";
 
 /** RMS amplitude above which a stream is considered "speaking" (0..1). */
 const SPEAKING_THRESHOLD = 0.045;
@@ -99,6 +115,7 @@ export function useRoomVoice(
   const [members, setMembers] = useState<readonly VoiceMember[]>([]);
   const [micOn, setMicOn] = useState(true);
   const [speakerOn, setSpeakerOn] = useState(true);
+  const [speakerBlocked, setSpeakerBlocked] = useState(false);
   const [micSuspended, setMicSuspended] = useState(false);
   const [hostMuted, setHostMutedState] = useState(false);
   const [selfSpeaking, setSelfSpeaking] = useState(false);
@@ -113,8 +130,18 @@ export function useRoomVoice(
   const outboundStreamRef = useRef<MediaStream | null>(null);
   const maskRef = useRef<VoiceMask | null>(null);
   const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  // ICE candidates that arrived before the matching SDP. `addIceCandidate`
+  // throws while `remoteDescription` is still null, so they are parked here and
+  // replayed once the description lands. Dropping them is invisible on one
+  // machine (the host candidate already connects) but breaks cross-device calls,
+  // where the relay candidate is often the only one that works.
+  const pendingCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const remoteAudioRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const peerNamesRef = useRef<Map<string, string>>(new Map());
+  // Signaling frames must be applied in arrival order. `ws.onmessage` is sync but
+  // each handler awaits, so without this chain a candidate could be processed
+  // while the offer before it is still mid-`setRemoteDescription`.
+  const signalQueueRef = useRef<Promise<void>>(Promise.resolve());
   const speakerOnRef = useRef(true);
   // The mic has one intent (`micOnRef`) and two independent "force off" reasons:
   // the AI-voice interlock (`suspendedRef`) and an owner mute (`hostMutedRef`).
@@ -197,9 +224,11 @@ export function useRoomVoice(
     (peerId: string) => {
       peersRef.current.get(peerId)?.close();
       peersRef.current.delete(peerId);
+      pendingCandidatesRef.current.delete(peerId);
       const audio = remoteAudioRef.current.get(peerId);
       if (audio) {
         audio.srcObject = null;
+        audio.remove();
         remoteAudioRef.current.delete(peerId);
       }
       peerNamesRef.current.delete(peerId);
@@ -215,13 +244,37 @@ export function useRoomVoice(
     if (!audio) {
       audio = new Audio();
       audio.autoplay = true;
+      // Mobile Safari needs inline playback; attaching to DOM helps some browsers unlock audio.
+      audio.setAttribute("playsinline", "true");
+      audio.style.display = "none";
+      document.body.appendChild(audio);
       remoteAudioRef.current.set(peerId, audio);
     }
     audio.srcObject = stream;
     audio.muted = !speakerOnRef.current;
-    void audio.play().catch(() => {
-      // Autoplay can be blocked until a user gesture; the toggle re-triggers play.
-    });
+    void audio.play().then(
+      () => setSpeakerBlocked(false),
+      () => {
+        // WebRTC `ontrack` runs outside the click gesture chain, so autoplay is often blocked.
+        if (speakerOnRef.current) setSpeakerBlocked(true);
+      },
+    );
+  }, []);
+
+  /** Retry playback on all remote streams (call from a user click). */
+  const unlockSpeaker = useCallback(() => {
+    void audioCtxRef.current?.resume().catch(() => {});
+    let blocked = false;
+    for (const audio of remoteAudioRef.current.values()) {
+      audio.muted = !speakerOnRef.current;
+      void audio.play().then(
+        () => {},
+        () => {
+          blocked = true;
+        },
+      );
+    }
+    setSpeakerBlocked(blocked && speakerOnRef.current);
   }, []);
 
   /** Create (or reuse) the peer connection for `peerId`, wiring tracks + ICE relay. */
@@ -230,7 +283,7 @@ export function useRoomVoice(
       const existing = peersRef.current.get(peerId);
       if (existing) return existing;
 
-      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      const pc = new RTCPeerConnection({ iceServers: iceServers() });
       peersRef.current.set(peerId, pc);
       peerNamesRef.current.set(peerId, name);
 
@@ -254,8 +307,19 @@ export function useRoomVoice(
       };
 
       pc.onconnectionstatechange = () => {
-        if (pc.connectionState === "failed" || pc.connectionState === "closed") {
+        if (pc.connectionState === "failed") {
+          setError(connectFailedMessage());
+          setStatus("error");
           removePeer(peerId);
+        } else if (pc.connectionState === "closed") {
+          removePeer(peerId);
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === "failed") {
+          setError(connectFailedMessage());
+          setStatus("error");
         }
       };
 
@@ -278,6 +342,17 @@ export function useRoomVoice(
     [ensurePeer, sendSignal],
   );
 
+  /** Replay the candidates that arrived for `peerId` before its remote SDP did. */
+  const flushPendingCandidates = useCallback(async (peerId: string, pc: RTCPeerConnection) => {
+    const queued = pendingCandidatesRef.current.get(peerId);
+    if (!queued) return;
+    pendingCandidatesRef.current.delete(peerId);
+    for (const candidate of queued) {
+      // One bad candidate must not discard the rest — a single working pair is enough.
+      await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
+    }
+  }, []);
+
   const handleSignal = useCallback(
     async (message: SignalMessage) => {
       switch (message.type) {
@@ -296,6 +371,7 @@ export function useRoomVoice(
           const name = peerNamesRef.current.get(message.from) ?? "Guest";
           const pc = ensurePeer(message.from, name);
           await pc.setRemoteDescription(new RTCSessionDescription(message.data));
+          await flushPendingCandidates(message.from, pc);
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           sendSignal({ type: "answer", to: message.from, data: answer });
@@ -303,17 +379,27 @@ export function useRoomVoice(
         }
         case "answer": {
           const pc = peersRef.current.get(message.from);
-          if (pc) await pc.setRemoteDescription(new RTCSessionDescription(message.data));
+          if (!pc) break;
+          await pc.setRemoteDescription(new RTCSessionDescription(message.data));
+          await flushPendingCandidates(message.from, pc);
           break;
         }
         case "ice-candidate": {
           const pc = peersRef.current.get(message.from);
-          if (pc) await pc.addIceCandidate(new RTCIceCandidate(message.data)).catch(() => {});
+          if (!pc) break;
+          if (!pc.remoteDescription) {
+            // The SDP has not arrived (or applied) yet — park the candidate.
+            const queued = pendingCandidatesRef.current.get(message.from) ?? [];
+            queued.push(message.data);
+            pendingCandidatesRef.current.set(message.from, queued);
+            break;
+          }
+          await pc.addIceCandidate(new RTCIceCandidate(message.data)).catch(() => {});
           break;
         }
       }
     },
-    [callPeer, ensurePeer, removePeer, sendSignal],
+    [callPeer, ensurePeer, flushPendingCandidates, removePeer, sendSignal],
   );
 
   /** Push the effective mic state (intent AND no force-off reason) onto the track. */
@@ -337,12 +423,19 @@ export function useRoomVoice(
       window.clearInterval(speakingTimerRef.current);
       speakingTimerRef.current = null;
     }
-    wsRef.current?.close();
+    const ws = wsRef.current;
     wsRef.current = null;
+    ws?.close();
     for (const pc of peersRef.current.values()) pc.close();
     peersRef.current.clear();
-    for (const audio of remoteAudioRef.current.values()) audio.srcObject = null;
+    pendingCandidatesRef.current.clear();
+    signalQueueRef.current = Promise.resolve();
+    for (const audio of remoteAudioRef.current.values()) {
+      audio.srcObject = null;
+      audio.remove();
+    }
     remoteAudioRef.current.clear();
+    setSpeakerBlocked(false);
     peerNamesRef.current.clear();
     analysersRef.current.clear();
     // Tear down the voice-disguise graph before closing the shared audio context.
@@ -372,11 +465,19 @@ export function useRoomVoice(
     }
     if (status === "connecting" || status === "connected") return;
 
+    // Drop stale mic/peer state from a prior disconnect before rejoining.
+    if (localStreamRef.current || wsRef.current || peersRef.current.size > 0) {
+      leave();
+    }
+
     setError(null);
     setStatus("connecting");
+    setSpeakerBlocked(false);
 
     if (typeof window !== "undefined" && !window.isSecureContext) {
-      setError("Voice needs a secure page. Open the app on http://localhost:8080 (not a LAN IP).");
+      setError(
+        "Voice needs HTTPS or localhost. Phones cannot use http://192.168.x.x — use HTTPS (deploy) or test with two browsers on the same PC.",
+      );
       setStatus("error");
       return;
     }
@@ -407,6 +508,8 @@ export function useRoomVoice(
     // The speaking meter reads the raw mic, so "you're speaking" reflects the
     // user's real voice even when the outbound stream is disguised.
     attachSpeakingMeter(SELF_ID, stream);
+    // Join is always triggered by a click — resume the shared AudioContext now.
+    void audioCtxRef.current?.resume().catch(() => {});
 
     // In incognito, disguise the outbound voice so identity/accent isn't exposed.
     // Falls back to the raw stream if Web Audio is unavailable, so the call still
@@ -432,9 +535,12 @@ export function useRoomVoice(
     ws.onerror = () => {
       setError("Lost the voice connection. Try rejoining.");
       setStatus("error");
+      if (wsRef.current === ws) leave();
     };
     ws.onclose = () => {
-      if (wsRef.current === ws) setStatus((s) => (s === "error" ? s : "idle"));
+      // leave() nulls wsRef before closing; skip if it already handled this socket.
+      if (wsRef.current !== ws) return;
+      leave();
     };
     ws.onmessage = (event) => {
       let message: SignalMessage;
@@ -443,13 +549,20 @@ export function useRoomVoice(
       } catch {
         return;
       }
-      void handleSignal(message);
+      // Chain onto the previous frame so offers/answers/candidates are applied
+      // strictly in arrival order. A rejected handler must not stall the chain.
+      signalQueueRef.current = signalQueueRef.current.then(
+        () => handleSignal(message),
+        () => handleSignal(message),
+      );
+      void signalQueueRef.current.catch(() => {});
     };
   }, [
     attachSpeakingMeter,
     applyTrack,
     displayName,
     handleSignal,
+    leave,
     voiceFilter,
     roomId,
     status,
@@ -465,11 +578,20 @@ export function useRoomVoice(
   const toggleSpeaker = useCallback(() => {
     const next = !speakerOnRef.current;
     speakerOnRef.current = next;
+    let blocked = false;
     for (const audio of remoteAudioRef.current.values()) {
       audio.muted = !next;
-      if (next) void audio.play().catch(() => {});
+      if (next) {
+        void audio.play().then(
+          () => {},
+          () => {
+            blocked = true;
+          },
+        );
+      }
     }
     setSpeakerOn(next);
+    setSpeakerBlocked(blocked && next);
   }, []);
 
   // Interlock (PRD §8.8): force the mic off for the duration of an AI-voice session,
@@ -511,6 +633,7 @@ export function useRoomVoice(
     members,
     micOn,
     speakerOn,
+    speakerBlocked,
     voiceMasked,
     micSuspended,
     hostMuted,
@@ -519,6 +642,7 @@ export function useRoomVoice(
     leave,
     toggleMic,
     toggleSpeaker,
+    unlockSpeaker,
     suspendMic,
     resumeMic,
     setHostMuted,

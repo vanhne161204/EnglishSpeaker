@@ -296,7 +296,7 @@ volumes:
 Launch:
 
 ```bash
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
 ```
 
 Caddy fetches a Let's Encrypt cert for `api.yourname.me` on first start (ports
@@ -306,30 +306,77 @@ Caddy fetches a Let's Encrypt cert for `api.yourname.me` on first start (ports
 
 ## 10. Phase 7 — TURN server (coturn) for voice
 
-Voice (WebRTC) needs TURN to work behind strict/corporate NAT. Run coturn on the
-same EC2.
+**Voice between two devices does not work without this.** WebRTC with STUN only
+can connect peers that can reach each other directly — two browser windows on
+one laptop, or two PCs on a friendly home network. Mobile carriers (CGNAT),
+office networks and many routers use symmetric NAT, where the direct path never
+opens. Those calls need a TURN relay: a server both sides can reach, which
+forwards the audio.
 
-1. **App change required:** the frontend currently uses STUN only. Add your TURN
-   server to the `RTCPeerConnection` `iceServers` config (in the voice hook),
-   e.g. `{ urls: "turn:turn.yourname.me:3478", username, credential }`.
-2. Run coturn (Docker) with a config like:
-   ```
-   listening-port=3478
-   tls-listening-port=5349
-   min-port=49152
-   max-port=65535
-   realm=yourname.me
-   # Prefer time-limited REST credentials; simplest is a static user:
-   user=etturn:<strong-password>
-   external-ip=<EIP>
-   fingerprint
-   lt-cred-mech
-   ```
-3. Open the ports from Phase 2. Test with `trickle-ice` (Google's WebRTC ICE test
-   page) that a `relay` candidate appears.
+> Classic symptom: "it works with two browsers on my laptop, but my phone can't
+> hear anything." That is a missing TURN relay, not a microphone problem.
 
-> Deferrable for a soft launch: without TURN, voice still works for many users on
-> home wifi (STUN only), just not everyone. Chat, warm-up, and STT don't need it.
+### 1. DNS
+
+Point `turn.englishspeaker.me` (A record) at the EC2 Elastic IP.
+
+### 2. Security group
+
+Open these (Phase 2 already lists them):
+
+| Port          | Protocol | Purpose                 |
+| ------------- | -------- | ----------------------- |
+| 3478          | TCP+UDP  | TURN/STUN               |
+| 49160–49200   | UDP      | TURN media relay range  |
+
+### 3. `.env.prod`
+
+```env
+TURN_REALM=englishspeaker.me
+TURN_USER=etturn
+TURN_PASSWORD=<openssl rand -hex 24>
+TURN_EXTERNAL_IP=<the EC2 Elastic IP>
+```
+
+`coturn` is already defined in `deploy/docker-compose.prod.yml`. Start it:
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d coturn
+docker compose --env-file .env.prod -f docker-compose.prod.yml logs coturn | tail -20
+```
+
+It runs with `network_mode: host` on purpose — coturn writes its own IP and
+ports into the ICE candidates it hands out, and Docker's bridge NAT would
+advertise container addresses no browser can reach.
+
+### 4. Point the frontend at it
+
+The relay only gets used if the browser is told about it. In the **Cloudflare
+Pages** project settings → Environment variables (Production *and* Preview), add:
+
+```
+VITE_TURN_URL=turn:turn.englishspeaker.me:3478,turn:turn.englishspeaker.me:3478?transport=tcp
+VITE_TURN_USERNAME=etturn
+VITE_TURN_CREDENTIAL=<same as TURN_PASSWORD>
+```
+
+Both transports are listed because some networks block UDP 3478 but allow TCP.
+Vite bakes `VITE_*` values in at build time, so **redeploy the frontend** after
+adding them — editing the variables alone changes nothing.
+
+For local dev the same three variables go in `frontend-web/.env.local`, pointing
+at the coturn in `backend/docker-compose.yml` (`turn:<your-LAN-IP>:3478`,
+`dev` / `devpass`).
+
+### 5. Verify
+
+Open Google's **Trickle ICE** test page, remove the default server, and add your
+TURN URL + credentials. Click *Gather candidates*: you must see at least one row
+of type **`relay`**. If only `host` and `srflx` appear, the relay is not
+reachable — recheck the security group and `TURN_EXTERNAL_IP`.
+
+Then test the real thing: join the same room from a laptop on wifi and a phone
+on **mobile data** (not the same wifi — that can succeed for the wrong reason).
 
 ---
 
@@ -352,7 +399,16 @@ DATABASE_URL=postgresql+asyncpg://englishtalker:<strong-password>@db:5432/englis
 REDIS_URL=redis://redis:6379/0
 ADMIN_USERNAMES=["<your-admin-username>"]
 ANTHROPIC_API_KEY=<key>         # only if using the AI coach (costs $ per call)
+
+# TURN relay for voice (§10). Voice between two DEVICES fails without these.
+TURN_REALM=englishspeaker.me
+TURN_USER=etturn
+TURN_PASSWORD=<openssl rand -hex 24>
+TURN_EXTERNAL_IP=<EC2 Elastic IP>
 ```
+
+> The `TURN_*` values are read by Compose itself, not by the API container, so
+> always start the stack with `--env-file .env.prod` (see the compose header).
 
 **Secrets handling:** keep `.env.prod` on the box with `chmod 600` (or store the
 values in **AWS SSM Parameter Store** and render the file on deploy). Never commit
@@ -578,7 +634,7 @@ transcriptions or offload STT to the browser (Web Speech API) where possible.
 | API can't resolve/connect to `db`          | DB container not healthy yet             | `docker compose ps`; wait for `db` healthy; check creds |
 | `type "vector" does not exist`             | pgvector extension not enabled           | `CREATE EXTENSION vector;` in the app DB (§6)           |
 | Mic / voice / STT silently fail            | Site not on HTTPS                        | Fix TLS; browsers block mic on http://                  |
-| Voice connects but no audio for some users | No TURN / NAT                            | Deploy coturn; add it to `iceServers`                   |
+| Voice works between two browsers on one PC, fails between two devices | No TURN relay | Deploy coturn and set `VITE_TURN_*` in Cloudflare Pages, then **redeploy** the frontend (§10) |
 | CORS errors in the browser                 | `CORS_ORIGINS` wrong                     | Set it to the exact frontend origin                     |
 | Caddy can't get a cert                     | 80/443 closed or DNS not pointing at EIP | Open ports; verify the A record                         |
 | Disk full / DB won't write                 | EBS volume filled (DB shares it)         | Grow the gp3 volume; check backup retention/log sizes   |
