@@ -26,7 +26,7 @@ import { LANGS, topicEmoji } from "@/lib/presentation";
 import { useAiVoice } from "@/lib/voice/use-ai-voice";
 import { BandReport } from "@/components/room/band-report";
 import { CoachReport } from "@/components/room/coach-report";
-import { StuckPanel } from "@/components/room/stuck-panel";
+import { IdeaPanel } from "@/components/room/idea-panel";
 import type { TranscriptLine } from "@/components/room/transcript-panel";
 import { TranscriptPanel } from "@/components/room/transcript-panel";
 import { useLiveTranscribe } from "@/lib/voice/use-live-transcribe";
@@ -413,7 +413,12 @@ function RoomLive({
       ws.send(
         JSON.stringify({
           type: "transcript",
-          text,
+          // `transcript_text`, NOT `text` — deliberately. A backend that predates
+          // this feature reads every frame as `data.get("text")` and posts it to
+          // CHAT without ever checking `type`. Keyed on `text`, interim results
+          // (~3 per second) flood the room with messages; keyed on this, such a
+          // server simply ignores the frame. Observed in production on 2026-08-30.
+          transcript_text: text,
           final,
           seq,
           source: "browser",
@@ -513,6 +518,16 @@ function RoomLive({
 
       {/* Floating quick nav — jumps to the sections below */}
       <div className="fixed right-3 sm:right-5 top-1/2 -translate-y-1/2 z-40 flex flex-col gap-2">
+        <IdeaPanel
+          contextLines={recentTalk}
+          topicId={topicId}
+          level={room.level}
+          onUse={(text) => {
+            setDraft(text);
+            setNotice("Added to your message — read it out loud, then send.");
+            window.setTimeout(() => setNotice(null), 3500);
+          }}
+        />
         <QuickNavButton targetId="topic-section" icon="📚" label="Topic" />
         <QuickNavButton targetId="translate-section" icon="🌐" label="Translate" />
         <QuickNavButton targetId="ai-section" icon="🤖" label="AI" />
@@ -731,16 +746,6 @@ function RoomLive({
             }}
             className="border-t border-border p-3 flex items-center gap-2"
           >
-            <StuckPanel
-              contextLines={recentTalk}
-              topicId={topicId}
-              level={room.level}
-              onUse={(text) => {
-                setDraft(text);
-                setNotice("Added to your message — read it out loud, then send.");
-                window.setTimeout(() => setNotice(null), 3500);
-              }}
-            />
             <MicButton
               onTranscript={(t) => {
                 setDraft((d) => (d ? `${d} ${t}` : t));

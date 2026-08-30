@@ -1,6 +1,9 @@
-// "I'm stuck" — the in-room rescue coach (docs/10_AI_Design.md §10.2).
+// The in-room rescue coach (docs/10_AI_Design.md §10.2).
 //
-// Sits next to the chat input because that is where a learner actually freezes.
+// Lives first in the right-hand rail, above the navigation buttons: the others
+// scroll you somewhere, this one is the only urgent action in a room, and
+// someone frozen mid-sentence should not be hunting past three icons.
+//
 // Three modes, because being stuck has three different shapes:
 //
 //   answer    someone asked me something and my mind went blank
@@ -25,15 +28,27 @@ import { useEffect, useRef, useState } from "react";
 import { assist } from "@/lib/api";
 import type { AssistKind } from "@/lib/api/types";
 
+// Icon and label live here so they are one edit away, not buried in JSX.
+//
+// Deliberately NOT 🆘 / "STUCK". A distress signal frames freezing mid-sentence
+// as an emergency, and naming the button after the learner's failure is the
+// opposite of what this feature is for — §10.2 exists to remove the fear of
+// looking stupid, not to label it. A lightbulb names what you GET (an idea)
+// rather than what is wrong with you.
+//
+// Alternatives that fit the 14px rail slot: 🙋 HELP · 🤔 HINT · ✨ PROMPT
+const TRIGGER_ICON = "💡";
+const TRIGGER_LABEL = "Ideas";
+
 /** How many recent lines of room talk to send as context. */
 const CONTEXT_LINES = 8;
 /** Backend caps `context` at 2000 chars; stay clear of it. */
 const CONTEXT_MAX_CHARS = 1500;
 
-type StuckMode = Extract<AssistKind, "answer" | "ask" | "say_this">;
+type IdeaMode = Extract<AssistKind, "answer" | "ask" | "say_this">;
 
 const MODES: ReadonlyArray<{
-  kind: StuckMode;
+  kind: IdeaMode;
   label: string;
   hint: string;
   needsText: boolean;
@@ -58,7 +73,7 @@ const MODES: ReadonlyArray<{
   },
 ];
 
-export interface StuckPanelProps {
+export interface IdeaPanelProps {
   /** Recent room speech, oldest first, already formatted as "Name: text". */
   contextLines: string[];
   topicId: string | null;
@@ -68,9 +83,9 @@ export interface StuckPanelProps {
   onUse: (text: string) => void;
 }
 
-export function StuckPanel({ contextLines, topicId, level, onUse }: StuckPanelProps) {
+export function IdeaPanel({ contextLines, topicId, level, onUse }: IdeaPanelProps) {
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState<StuckMode | null>(null);
+  const [busy, setBusy] = useState<IdeaMode | null>(null);
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [degraded, setDegraded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -93,7 +108,7 @@ export function StuckPanel({ contextLines, topicId, level, onUse }: StuckPanelPr
     };
   }, [open]);
 
-  const request = async (mode: StuckMode) => {
+  const request = async (mode: IdeaMode) => {
     if (mode === "say_this" && !idea.trim()) return;
     setBusy(mode);
     setError(null);
@@ -131,24 +146,37 @@ export function StuckPanel({ contextLines, topicId, level, onUse }: StuckPanelPr
   };
 
   return (
-    <div ref={rootRef} className="relative flex-none">
+    <div ref={rootRef} className="relative">
+      {/* Matches QuickNavButton so the rail reads as one set of controls. */}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        title="Stuck? Get something to say"
-        aria-label="I'm stuck — get a suggestion"
+        title="Need an idea? Get something to say"
+        aria-label="Get an idea for what to say"
         aria-expanded={open}
-        className={`rounded-full px-3 py-2 text-sm font-semibold transition ${
-          open ? "bg-primary text-primary-foreground" : "border border-border hover:bg-muted"
+        className={`group flex h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-2xl border shadow-md backdrop-blur transition-all hover:shadow-lg ${
+          open
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-border bg-card/95 hover:border-primary/50 hover:bg-primary/5"
         }`}
       >
-        🆘
+        <span className="text-xl leading-none">{TRIGGER_ICON}</span>
+        <span
+          className={`text-[9px] font-semibold uppercase tracking-wider ${
+            open ? "text-primary-foreground" : "text-muted-foreground group-hover:text-primary"
+          }`}
+        >
+          {TRIGGER_LABEL}
+        </span>
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 z-40 mb-2 w-[300px] rounded-2xl border border-border bg-card p-4 shadow-lg">
+        // Opens to the LEFT: the rail is pinned to the right edge, so an upward
+        // or rightward panel would run off screen. `max-w` keeps it inside the
+        // viewport on a phone, where 300px + the rail would not fit.
+        <div className="absolute right-full top-0 z-50 mr-2 w-[300px] max-w-[calc(100vw-5rem)] rounded-2xl border border-border bg-card p-4 shadow-xl">
           <div className="flex items-baseline justify-between">
-            <span className="text-sm font-semibold">Stuck? Pick one</span>
+            <span className="text-sm font-semibold">Need an idea?</span>
             {/* Reassurance, not decoration: people only use this if it is private. */}
             <span className="text-[10px] text-muted-foreground">Only you see this</span>
           </div>

@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 #: A spoken sentence is short. The cap stops a broken or hostile client from
 #: pushing an essay through the socket on every keystroke of speech.
@@ -17,7 +17,22 @@ class TranscriptSegmentIn(BaseModel):
     live, then discarded. Only finals are stored — see the model docstring.
     """
 
-    text: str = Field(min_length=1, max_length=MAX_SEGMENT_CHARS)
+    #: Sent on the wire as ``transcript_text``, NOT ``text``.
+    #:
+    #: This is a safety property, not a style choice. An older backend's socket
+    #: loop is `text = data.get("text"); if text: post_chat_message(text)` — it
+    #: never reads `type`. A transcript frame keyed on `text` therefore becomes a
+    #: CHAT MESSAGE on any server that predates this feature, and because interim
+    #: results fire ~3x a second, that floods the room.
+    #:
+    #: Keyed on `transcript_text`, such a server finds no `text`, skips the frame,
+    #: and the worst case degrades to "the panel stays empty". `text` is still
+    #: accepted so older clients and existing tests keep working.
+    text: str = Field(
+        min_length=1,
+        max_length=MAX_SEGMENT_CHARS,
+        validation_alias=AliasChoices("transcript_text", "text"),
+    )
     final: bool = True
     seq: int = Field(default=0, ge=0)
     language: str | None = Field(default=None, max_length=16)

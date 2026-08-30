@@ -330,3 +330,56 @@ async def test_paging_walks_backwards_through_time(client: AsyncClient) -> None:
         )
     ).json()
     assert [s["text"] for s in older["segments"]] == ["line 1", "line 2"]
+
+
+# --- version-mismatch safety (observed in production 2026-08-30) ----------
+#
+# The frontend deployed before the backend, and every spoken word — including
+# ~3 interim previews per second — became a chat message, because the older
+# socket loop was:
+#
+#     text = (data.get("text") or "").strip()
+#     if text: post_chat_message(text)     # `type` never read
+#
+# The wire key is now `transcript_text`, so such a server finds nothing and
+# skips the frame instead of flooding the room.
+
+
+def test_the_wire_key_cannot_be_mistaken_for_a_chat_message() -> None:
+    """The property that makes a version mismatch harmless."""
+    frame = {
+        "type": "transcript",
+        "transcript_text": "I went to Da Nang last weekend",
+        "final": True,
+        "seq": 0,
+    }
+    # Verbatim logic from the backend that predates this feature.
+    legacy_chat_text = (frame.get("text") or "").strip()
+    assert legacy_chat_text == "", "an old backend would post this to chat"
+
+    # The current backend still reads it correctly.
+    assert TranscriptSegmentIn.model_validate(frame).text == "I went to Da Nang last weekend"
+
+
+def test_the_old_wire_key_still_works() -> None:
+    """Clients cached mid-rollout keep working; only the safety property is lost."""
+    assert TranscriptSegmentIn.model_validate({"text": "hello", "final": True}).text == "hello"
+
+
+async def test_a_frame_sent_the_new_way_is_stored_normally(client: AsyncClient) -> None:
+    room_id, user_id, name, _ = await _room_and_speaker(client)
+    socket = FakeWebSocket()
+    await manager.connect(str(room_id), socket, str(user_id), name)  # type: ignore[arg-type]
+    try:
+        await _handle_transcript(
+            socket,  # type: ignore[arg-type]
+            str(room_id),
+            room_id,
+            user_id,
+            name,
+            {"type": "transcript", "transcript_text": "Spoken with the new key.", "final": True},
+        )
+    finally:
+        manager.disconnect(str(room_id), socket)  # type: ignore[arg-type]
+
+    assert [s.text for s in await _stored(room_id)] == ["Spoken with the new key."]
