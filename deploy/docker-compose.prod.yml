@@ -53,8 +53,13 @@ services:
   #
   # `network_mode: host` is required: coturn hands out its own IP/ports inside
   # the ICE candidates, and Docker's bridge NAT would advertise unreachable
-  # container addresses. Set TURN_EXTERNAL_IP / TURN_REALM / TURN_USER /
-  # TURN_PASSWORD in `.env.prod`.
+  # container addresses. Set TURN_EXTERNAL_IP / TURN_INTERNAL_IP / TURN_REALM /
+  # TURN_USER / TURN_PASSWORD in `.env.prod`.
+  #
+  # Every ${VAR} below uses `:?` so a missing value stops the deploy. Compose
+  # otherwise substitutes an empty string and coturn starts *successfully* with
+  # `--realm=` and `--user=:` — a relay that accepts connections but rejects
+  # every allocation, which looks identical to a network problem from the app.
   coturn:
     image: coturn/coturn:4.6.2-alpine
     network_mode: host
@@ -64,9 +69,18 @@ services:
       - --listening-port=3478
       - --min-port=49160
       - --max-port=49200
-      - --realm=${TURN_REALM}
-      - --user=${TURN_USER}:${TURN_PASSWORD}
-      - --external-ip=${TURN_EXTERNAL_IP}
+      # Bind and relay on the host's real NIC only. Under `network_mode: host`
+      # coturn otherwise auto-discovers the Docker bridges (172.17.0.1,
+      # 172.19.0.1) as relay addresses and round-robins across them, so some
+      # allocations land on an interface the internet cannot reach and the call
+      # fails for no visible reason.
+      - "--listening-ip=${TURN_INTERNAL_IP:?set TURN_INTERNAL_IP in .env.prod - the EC2 private IP}"
+      - "--relay-ip=${TURN_INTERNAL_IP:?set TURN_INTERNAL_IP in .env.prod - the EC2 private IP}"
+      - "--realm=${TURN_REALM:?set TURN_REALM in .env.prod}"
+      - "--user=${TURN_USER:?set TURN_USER in .env.prod}:${TURN_PASSWORD:?set TURN_PASSWORD in .env.prod}"
+      # `public/private` maps the relay socket to the Elastic IP, so candidates
+      # carry the address peers can actually route to.
+      - "--external-ip=${TURN_EXTERNAL_IP:?set TURN_EXTERNAL_IP in .env.prod}/${TURN_INTERNAL_IP}"
       - --lt-cred-mech # long-term credentials: the username/password the browser sends
       - --fingerprint
       - --no-cli # no telnet admin port

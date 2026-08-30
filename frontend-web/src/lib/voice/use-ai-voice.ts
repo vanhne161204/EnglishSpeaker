@@ -200,6 +200,10 @@ export function useAiVoice(topicId: string | null): UseAiVoiceResult {
 
 interface SpeechRecognitionAlternativeLike {
   readonly transcript: string;
+  /** 0-1, when the engine reports it. Chrome does; not every engine will.
+   *  Stored per segment so repeatedly-misheard words can later become a
+   *  pronunciation hint list (docs/10_AI_Design.md §10.3.11). */
+  readonly confidence?: number;
 }
 interface SpeechRecognitionResultLike {
   /** True once this result is finalized (not an interim guess). */
@@ -218,7 +222,10 @@ interface SpeechRecognitionEventLike {
 interface SpeechRecognitionErrorLike {
   readonly error: string;
 }
-interface SpeechRecognitionLike {
+/** Shared by all three speech hooks (`use-ai-voice`, `use-speech-to-text`,
+ *  `use-live-transcribe`). Exported so the typing — and the `Window` global
+ *  below — is declared exactly once. */
+export interface SpeechRecognitionLike {
   lang: string;
   interimResults: boolean;
   continuous: boolean;

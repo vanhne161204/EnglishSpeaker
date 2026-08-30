@@ -97,14 +97,20 @@ jobs:
             # 1) Back up the database BEFORE any change (see deploy/backup.sh).
             ./backup.sh
 
+            # `--env-file` is required: Compose substitutes the ${VAR} placeholders
+            # in docker-compose.prod.yml (Postgres creds, coturn realm/user/IP)
+            # from THIS file. Without it they expand to empty strings and coturn
+            # would restart with broken flags like `--realm=`.
+            COMPOSE="docker compose --env-file .env.prod -f docker-compose.prod.yml"
+
             # 2) Pull the freshly built API image.
-            docker compose -f docker-compose.prod.yml pull api
+            $COMPOSE pull api
 
             # 3) Run migrations with the new image (safe: additive, backed up above).
-            docker compose -f docker-compose.prod.yml run --rm api alembic upgrade head
+            $COMPOSE run --rm api alembic upgrade head
 
             # 4) Restart the app with the new image.
-            docker compose -f docker-compose.prod.yml up -d
+            $COMPOSE up -d
 
             # 5) Health check — fail the deploy (red) if the API isn't serving.
             for i in $(seq 1 10); do

@@ -21,9 +21,15 @@ import {
   type Topic,
   type TopicQuestion,
 } from "@/lib/api";
-import { ensureUser, randomGuestName } from "@/lib/identity";
+import { ensureUser, randomGuestName, useIdentity } from "@/lib/identity";
 import { LANGS, topicEmoji } from "@/lib/presentation";
 import { useAiVoice } from "@/lib/voice/use-ai-voice";
+import { BandReport } from "@/components/room/band-report";
+import { CoachReport } from "@/components/room/coach-report";
+import { StuckPanel } from "@/components/room/stuck-panel";
+import type { TranscriptLine } from "@/components/room/transcript-panel";
+import { TranscriptPanel } from "@/components/room/transcript-panel";
+import { useLiveTranscribe } from "@/lib/voice/use-live-transcribe";
 import { useRoomVoice } from "@/lib/voice/use-room-voice";
 import { VOICE_FILTERS, voiceFilterLabel, type VoiceFilterId } from "@/lib/voice/voice-mask";
 import { AiVoiceCard } from "@/components/room/voice-panel";
@@ -115,6 +121,14 @@ function RoomLive({
   // Owner's optimistic view of which members they've muted (enforcement is on the target).
   const [mutedIds, setMutedIds] = useState<ReadonlySet<string>>(new Set());
   const socketRef = useRef<WebSocket | null>(null);
+  // The room's spoken script (PRD §8.9). Finalised lines come back from the
+  // server; the one being spoken right now is held separately so it can be
+  // replaced in place instead of stacking a new line per partial result.
+  const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
+  const [interim, setInterim] = useState<TranscriptLine | null>(null);
+  // The coach report is per-account, so it needs a real login (not a guest id).
+  const identity = useIdentity();
+  const signedIn = !!identity?.username;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const isOwner = userId != null && room.owner_id === userId;
 
@@ -265,6 +279,40 @@ function RoomLive({
                 },
               ],
         );
+      } else if (frame.type === "transcript") {
+        // A line of speech. `final` decides whether it is a finished sentence
+        // (kept, and stored server-side) or the preview of one in progress.
+        const seg = frame.segment as Record<string, unknown> | undefined;
+        if (!seg) return;
+        const speakerId = String(seg.user_id ?? "");
+        const line: TranscriptLine = {
+          id: String(seg.id ?? `${speakerId}:${seg.seq ?? 0}`),
+          userId: speakerId,
+          speaker: String(seg.speaker_name ?? "Someone"),
+          text: String(seg.text ?? ""),
+          mine: speakerId === userId,
+          interim: frame.final !== true,
+        };
+        if (frame.final === true) {
+          setTranscript((prev) => (prev.some((l) => l.id === line.id) ? prev : [...prev, line]));
+          // The finished sentence supersedes that speaker's preview.
+          setInterim((prev) => (prev?.userId === speakerId ? null : prev));
+        } else {
+          setInterim(line);
+        }
+      } else if (frame.type === "transcript_history") {
+        // Sent once on connect so a late joiner reads the script so far, not
+        // just what is said after they arrive.
+        const segments = Array.isArray(frame.segments) ? frame.segments : [];
+        setTranscript(
+          segments.map((s: Record<string, unknown>) => ({
+            id: String(s.id ?? ""),
+            userId: String(s.user_id ?? ""),
+            speaker: String(s.speaker_name ?? "Someone"),
+            text: String(s.text ?? ""),
+            mine: String(s.user_id ?? "") === userId,
+          })),
+        );
       } else if (frame.type === "roster") {
         // Sent once on connect: the members already in the room. Seed the list
         // with everyone except yourself, so people who joined earlier show up.
@@ -352,6 +400,58 @@ function RoomLive({
     ws.send(JSON.stringify({ text: t }));
     setDraft("");
   }, []);
+
+  // --- Live transcript (PRD §8.9) ---------------------------------------
+  //
+  // Speech recognition runs in the BROWSER, so audio never reaches the server
+  // and costs nothing. Only the resulting text goes over the socket. See
+  // docs/10_AI_Design.md §8.9 for why server-side Whisper was ruled out.
+  const sendTranscript = useCallback(
+    (text: string, seq: number, final: boolean, confidence?: number) => {
+      const ws = socketRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(
+        JSON.stringify({
+          type: "transcript",
+          text,
+          final,
+          seq,
+          source: "browser",
+          language: "en-US",
+          stt_confidence: confidence ?? null,
+          spoken_at: new Date().toISOString(),
+        }),
+      );
+    },
+    [],
+  );
+
+  const live = useLiveTranscribe(
+    useCallback((s) => sendTranscript(s.text, s.seq, true, s.confidence), [sendTranscript]),
+    useCallback((s) => sendTranscript(s.text, s.seq, false), [sendTranscript]),
+  );
+
+  // Stop capturing when leaving the page, so the mic light does not stay on.
+  useEffect(() => live.stop, [live.stop]);
+
+  // The finished script plus, at the end, the sentence being spoken right now.
+  const transcriptLines = useMemo(
+    () => (interim ? [...transcript, interim] : transcript),
+    [transcript, interim],
+  );
+
+  // What the room has said recently, oldest first, for the "I'm stuck" coach.
+  // Only chat messages — presence lines ("X joined") are noise to a model.
+  const recentTalk = useMemo(() => {
+    // Prefer what was actually SAID: in a voice room the chat box is often
+    // empty while the conversation the learner is stuck in happens out loud.
+    const spoken = transcript.slice(-12).map((l) => `${l.speaker}: ${l.text}`);
+    if (spoken.length > 0) return spoken;
+    return lines
+      .filter((l) => l.kind === "message")
+      .slice(-12)
+      .map((l) => `${l.name}: ${l.text}`);
+  }, [transcript, lines]);
 
   const peopleCount = Math.max(room.participant_count, present.length + 1);
 
@@ -631,6 +731,16 @@ function RoomLive({
             }}
             className="border-t border-border p-3 flex items-center gap-2"
           >
+            <StuckPanel
+              contextLines={recentTalk}
+              topicId={topicId}
+              level={room.level}
+              onUse={(text) => {
+                setDraft(text);
+                setNotice("Added to your message — read it out loud, then send.");
+                window.setTimeout(() => setNotice(null), 3500);
+              }}
+            />
             <MicButton
               onTranscript={(t) => {
                 setDraft((d) => (d ? `${d} ${t}` : t));
@@ -668,6 +778,30 @@ function RoomLive({
             </button>
           </form>
         </aside>
+      </div>
+
+      {/* Live script — what everyone SAID, as opposed to what they typed (§8.9) */}
+      <div id="transcript-section" className="mt-5 scroll-mt-24">
+        <TranscriptPanel
+          lines={transcriptLines}
+          supported={live.supported}
+          listening={live.listening}
+          error={live.error}
+          onToggle={() => (live.listening ? live.stop() : live.start())}
+        />
+      </div>
+
+      {/* Coach report. Band first, then the per-sentence detail behind it —
+          that is the order a learner reads in (docs §10.3.14). */}
+      <div id="report-section" className="mt-5 grid scroll-mt-24 gap-5 lg:grid-cols-2 items-start">
+        <BandReport roomId={room.id} signedIn={signedIn} />
+        <CoachReport
+          roomId={room.id}
+          signedIn={signedIn}
+          onSave={(original, improved) =>
+            saveNote({ original_text: original, improved_text: improved, source: "ai" })
+          }
+        />
       </div>
 
       {/* Topic detail — questions come from the topic's documentation (PRD §8.2) */}

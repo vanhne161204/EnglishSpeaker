@@ -10,6 +10,13 @@ os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./test_englishtalker.
 # Tests manage their own schema; never auto-seed demo data into the test DB.
 os.environ.setdefault("AUTO_CREATE_TABLES", "false")
 
+# Force every AI call to the offline stub. A developer with a real key in .env
+# would otherwise have the suite hit the live API: slow, flaky, and it spends
+# money on every run. Tests that need real model behaviour inject a
+# FakeProvider (tests/test_ai_providers.py); the one script that talks to the
+# network is scripts/check_ai_provider.py, run by hand.
+os.environ["AI_ENABLED"] = "false"
+
 from collections.abc import AsyncGenerator  # noqa: E402
 
 import pytest_asyncio  # noqa: E402

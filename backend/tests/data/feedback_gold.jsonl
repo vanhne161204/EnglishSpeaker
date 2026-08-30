@@ -1,0 +1,50 @@
+{"id": "err-01", "text": "I go to Da Nang yesterday with my family.", "expect_error": true, "note": "past tense: go -> went"}
+{"id": "err-02", "text": "She don't like coffee very much.", "expect_error": true, "note": "subject-verb agreement: don't -> doesn't"}
+{"id": "err-03", "text": "I am living in Hanoi since three years.", "expect_error": true, "note": "have lived ... for three years"}
+{"id": "err-04", "text": "Yesterday I meet my old friend at the market.", "expect_error": true, "note": "past tense: meet -> met"}
+{"id": "err-05", "text": "He is more taller than his brother.", "expect_error": true, "note": "double comparative"}
+{"id": "err-06", "text": "I very like this song.", "expect_error": true, "note": "adverb placement: I really like"}
+{"id": "err-07", "text": "My mother she works in a hospital.", "expect_error": true, "note": "double subject"}
+{"id": "err-08", "text": "I have went to Japan two times.", "expect_error": true, "note": "have been / have gone"}
+{"id": "err-09", "text": "We discussed about the problem for one hour.", "expect_error": true, "note": "discuss takes no preposition"}
+{"id": "err-10", "text": "There is many people waiting outside.", "expect_error": true, "note": "there are many people"}
+{"id": "err-11", "text": "I didn't went to the party last night.", "expect_error": true, "note": "didn't go"}
+{"id": "err-12", "text": "She is teacher at my old school.", "expect_error": true, "note": "missing article: a teacher"}
+{"id": "err-13", "text": "I look forward to meet you next week.", "expect_error": true, "note": "look forward to meeting"}
+{"id": "err-14", "text": "The informations you gave me were helpful.", "expect_error": true, "note": "information is uncountable"}
+{"id": "err-15", "text": "If I will have time, I will call you.", "expect_error": true, "note": "if I have time"}
+{"id": "err-16", "text": "I am agree with your opinion.", "expect_error": true, "note": "I agree"}
+{"id": "err-17", "text": "He explained me the rules again.", "expect_error": true, "note": "explained the rules to me"}
+{"id": "err-18", "text": "I have a lot of homeworks tonight.", "expect_error": true, "note": "homework is uncountable"}
+{"id": "err-19", "text": "Everyone in my class are studying hard.", "expect_error": true, "note": "everyone is"}
+{"id": "err-20", "text": "I born in nineteen ninety eight.", "expect_error": true, "note": "I was born"}
+{"id": "awk-01", "text": "I think the weather is very good today.", "expect_error": false, "note": "correct but flat; natural: lovely weather today"}
+{"id": "awk-02", "text": "My hobby is to listen to the music.", "expect_error": false, "note": "understandable; natural: I like listening to music"}
+{"id": "awk-03", "text": "I want to improve my English speaking skill.", "expect_error": false, "note": "correct; natural: get better at speaking English"}
+{"id": "awk-04", "text": "It is very interesting for me to learn about culture.", "expect_error": false, "note": "correct but stiff"}
+{"id": "awk-05", "text": "I have many friends who are very kind to me.", "expect_error": false, "note": "correct, slightly formal"}
+{"id": "awk-06", "text": "In my free time I usually do the reading of books.", "expect_error": false, "note": "odd but not ungrammatical; natural: I read"}
+{"id": "awk-07", "text": "The food in my country is very delicious and tasty.", "expect_error": false, "note": "redundant, not wrong"}
+{"id": "awk-08", "text": "I feel very happy when I speak with foreign people.", "expect_error": false, "note": "natural: foreigners / people from other countries"}
+{"id": "awk-09", "text": "My job is quite busy but I like it very much.", "expect_error": false, "note": "correct, learner-flavoured"}
+{"id": "awk-10", "text": "I would like to say that I agree with this idea.", "expect_error": false, "note": "wordy, not wrong"}
+{"id": "ok-01", "text": "I went to Da Nang last weekend with my family.", "expect_error": false, "note": "perfectly fine"}
+{"id": "ok-02", "text": "Yeah, I do that every morning before work.", "expect_error": false, "note": "casual speech, fine"}
+{"id": "ok-03", "text": "Honestly, I've never really thought about it.", "expect_error": false, "note": "contraction, fine"}
+{"id": "ok-04", "text": "It depends on how much time I have.", "expect_error": false, "note": "fine"}
+{"id": "ok-05", "text": "I'm not sure, but I think it's around ten o'clock.", "expect_error": false, "note": "fine"}
+{"id": "ok-06", "text": "We usually meet up on Saturdays.", "expect_error": false, "note": "fine"}
+{"id": "ok-07", "text": "That sounds like a really good idea.", "expect_error": false, "note": "fine"}
+{"id": "ok-08", "text": "I've been learning English for about three years.", "expect_error": false, "note": "fine"}
+{"id": "ok-09", "text": "gonna grab a coffee after this", "expect_error": false, "note": "spoken register; must NOT be flagged"}
+{"id": "ok-10", "text": "yeah me too actually", "expect_error": false, "note": "no punctuation or capitals; must NOT be flagged"}
+{"id": "stt-01", "text": "I went to the the the market and", "expect_error": false, "note": "STT stutter artefact; leave alone"}
+{"id": "stt-02", "text": "my favourite is uh is the one with", "expect_error": false, "note": "STT filler + truncation"}
+{"id": "stt-03", "text": "she said that that she would", "expect_error": false, "note": "STT duplication"}
+{"id": "stt-04", "text": "I think um yeah I think so", "expect_error": false, "note": "fillers only"}
+{"id": "stt-05", "text": "we went to hanoi and then and then we", "expect_error": false, "note": "cut off mid-sentence"}
+{"id": "stt-06", "text": "it was really really it was good", "expect_error": false, "note": "self-correction captured verbatim"}
+{"id": "stt-07", "text": "the the weather was was quite nice", "expect_error": false, "note": "duplication artefact"}
+{"id": "stt-08", "text": "I want to to say something about", "expect_error": false, "note": "truncated, do not correct"}
+{"id": "stt-09", "text": "can you can you repeat that please", "expect_error": false, "note": "repetition, still valid speech"}
+{"id": "stt-10", "text": "so I I mean I usually go there", "expect_error": false, "note": "self-correction, valid speech"}

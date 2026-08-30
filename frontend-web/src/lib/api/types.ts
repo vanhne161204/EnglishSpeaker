@@ -4,7 +4,10 @@
 
 export type ConversationMode = "normal" | "incognito";
 export type RoomKind = "group" | "one_on_one";
-export type AssistKind = "improve" | "reply";
+/** What kind of help the learner is asking for (docs/10_AI_Design.md §10.2).
+ *  `improve`/`reply` are the original two; the rest are the "I'm stuck" modes —
+ *  `say_this` turns the learner's own idea (often Vietnamese) into English. */
+export type AssistKind = "improve" | "reply" | "answer" | "ask" | "say_this";
 export type PlanTier = "free" | "premium";
 /** Publication state of admin-authored content (PRD §8.1/§8.2). */
 export type ContentStatus = "draft" | "published" | "archived";
@@ -317,16 +320,128 @@ export type TranslateResult = {
 // ----- AI conversation help -----
 export type AssistRequest = {
   kind: AssistKind;
+  /** The learner's own text. Required for `improve` and `say_this`. */
   text?: string;
+  /** Recent room speech. Used by `reply`, `answer` and `ask`. */
   context?: string | null;
   topic_id?: string | null;
+  /** Learner CEFR level (e.g. "A2") so a suggestion is never too hard to say. */
+  level?: string | null;
 };
 
 export type AssistResult = {
   suggestion: string;
   kind: AssistKind;
+  /** Which engine answered: "openai", "anthropic", "stub", or "limit". */
   provider: string;
+  /** True when a fallback answered, or a spend cap was hit. Lets the UI soften
+   *  instead of presenting a backup as if it were the best available. */
+  degraded?: boolean;
 };
+
+// ----- Coach Report layer 1 (docs/10_AI_Design.md §10.3) -----
+//
+// What the AI found in ONE sentence the learner SPOKE. Generated from
+// `transcript_segments`, and disposable — the learner keeps what matters by
+// saving it to their notes.
+
+export type GrammarError = {
+  /** The exact wrong words, quoted from what they said. */
+  wrong: string;
+  right: string;
+  /** e.g. "verb tense", "article", "preposition" — grouped in the summary. */
+  kind: string;
+  why: string;
+};
+
+export type VocabUpgrade = {
+  basic: string;
+  better: string;
+  example: string;
+};
+
+export type SentenceFeedback = {
+  id: string;
+  room_id: string | null;
+  segment_id: string | null;
+  original_text: string;
+  is_correct: boolean;
+  /** Null when the sentence was already correct. */
+  corrected: string | null;
+  natural: string;
+  paraphrase: string;
+  errors: GrammarError[];
+  vocab: VocabUpgrade[];
+  cefr: string | null;
+  score: number;
+  model: string;
+  created_at: string;
+};
+
+export type MistakeCount = { kind: string; count: number };
+
+/** The "what do I keep getting wrong" view — pure SQL server-side, no AI call. */
+export type FeedbackSummary = {
+  sentences_checked: number;
+  with_errors: number;
+  average_score: number;
+  top_mistakes: MistakeCount[];
+};
+
+// ----- Coach Report layer 2: IELTS bands (docs §10.3.7) -----
+
+export type ReportMode = "conversation" | "ielts_part1" | "ielts_part2" | "ielts_part3";
+export type BandCriterion = "fluency" | "lexical" | "grammar" | "pronunciation";
+
+export type CriterionScore = {
+  /** Quotes from the LEARNER's own lines — partner quotes are stripped server-side. */
+  evidence: string[];
+  what_worked: string;
+  what_held_back: string;
+  descriptor: string;
+  band: number;
+};
+
+export type Blocker = {
+  title: string;
+  /** Their own words. */
+  example: string;
+  /** The same idea, said better. */
+  fix: string;
+  criterion: BandCriterion;
+};
+
+export type Drill = { title: string; how: string; minutes: number };
+
+export type SessionReport = {
+  id: string;
+  room_id: string | null;
+  mode: ReportMode;
+
+  band_fluency: number;
+  band_lexical: number;
+  band_grammar: number;
+  /** Always null for now: no model accepts audio, so it cannot be scored. */
+  band_pronunciation: number | null;
+  band_overall: number;
+
+  pronunciation_assessed: boolean;
+  /** True while `band_overall` averages only three criteria. The UI MUST label
+   *  the number when this is set — it is an estimate, not a band. */
+  overall_is_estimate: boolean;
+
+  summary: string;
+  next_band: number;
+  criteria: Record<string, CriterionScore>;
+  blockers: Blocker[];
+  drills: Drill[];
+  metrics: Record<string, number | boolean>;
+  model: string;
+  quotes_removed: number;
+  created_at: string;
+};
+
+export type BandPoint = { created_at: string; band_overall: number; mode: ReportMode };
 
 // ----- Matchmaking -----
 export type MatchRequest = {

@@ -93,19 +93,34 @@ switch `DATABASE_URL` to an RDS endpoint and drop the `postgres` service.
 
 ---
 
-## 4. Phase 1 — Domain & DNS (Namecheap)
+## 4. Phase 1 — Domain & DNS (Namecheap registrar, **Cloudflare DNS**)
 
 1. In Namecheap, register/activate your Student Pack domain (e.g. `yourname.me`).
-2. Keep **BasicDNS** (Namecheap's free DNS). Do **not** switch nameservers to Route 53.
-3. You'll add A records **after** the EC2 has its Elastic IP (Phase 4). Records needed:
+2. Add the domain to Cloudflare and set Namecheap's nameservers to the pair
+   Cloudflare gives you (for `englishspeaker.me`: `nucum.ns.cloudflare.com` /
+   `carl.ns.cloudflare.com`).
 
-| Type  | Host        | Value                   | Purpose                  |
-| ----- | ----------- | ----------------------- | ------------------------ |
-| A     | `api`       | EC2 Elastic IP          | Backend API + WebSockets |
-| A     | `turn`      | EC2 Elastic IP          | TURN server (voice)      |
-| CNAME | `@` / `www` | Cloudflare Pages target | Frontend (Option A)      |
+   **Namecheap is only the registrar. Every DNS record is edited in the
+   Cloudflare dashboard**, not in Namecheap's Advanced DNS tab. That tab shows
+   "manage host records in your cPanel account" precisely because the
+   nameservers point away from Namecheap — that message is expected, not a bug.
 
-> All-on-EC2 (Option B) instead: `A @ → EIP` and `A www → EIP`, no Cloudflare.
+3. Add these records in **Cloudflare → your domain → DNS → Records**, after the
+   EC2 has its Elastic IP (Phase 4):
+
+| Type  | Name   | Value                   | Proxy status      | Purpose                  |
+| ----- | ------ | ----------------------- | ----------------- | ------------------------ |
+| A     | `api`  | EC2 Elastic IP          | **DNS only** (grey) | Backend API + WebSockets |
+| A     | `turn` | EC2 Elastic IP          | **DNS only** (grey) | TURN server (voice)      |
+| CNAME | `@`/`www` | Cloudflare Pages target | Proxied (orange) | Frontend                 |
+
+> ⚠️ `api` and `turn` **must be grey-cloud / DNS only**. Cloudflare's proxy
+> forwards HTTP(S) on a fixed set of ports only. Proxying `turn` would hide the
+> real IP and drop UDP 3478 entirely, so voice would never connect. Proxying
+> `api` would break the raw WebSocket ports too.
+>
+> Quick check: `nslookup turn.yourname.me` must return your **EC2 IP**. If it
+> returns a `104.x` / `172.67.x` address, the record is proxied — turn it off.
 
 **Renewal warning:** the free `.me` lasts **1 year**. Set a reminder; check the
 renewal price now so the site doesn't lapse.
@@ -192,17 +207,36 @@ Key points (the container is defined in the compose file in §9):
 
 The frontend (TanStack Start) currently **builds for Cloudflare** (`vite.config.ts`).
 
-### Option A — Cloudflare Pages *(recommended: free, matches the build)*
+### Option A — Cloudflare **Worker** *(what this project actually uses)*
 
-1. Push the repo to GitHub; in Cloudflare Pages, **Create project → connect the
-   repo**, set the build:
-   - Build command: `npm run build`
-   - Output: the Cloudflare Pages / TanStack Start output directory (Pages
-     auto-detects; confirm against the built `dist/`).
-   - Build env var: `VITE_API_BASE_URL=https://api.yourname.me/api/v1`
-2. Add your custom domain `yourname.me` in Pages → it gives you a CNAME target;
-   add that CNAME in Namecheap. Cloudflare handles TLS automatically.
+The app ships as a Worker, not a Pages project: `frontend-web/wrangler.jsonc`
+declares `name: "englishspeaker"` with `main: dist/server/server.js` and the
+`dist/client` assets binding. In the Cloudflare dashboard it appears under
+**Compute (Workers)**, and the zone shows a `Worker` route on the apex domain.
+
+1. Build command `npm run build`; the Worker entry is `dist/server/server.js`.
+2. Attach the custom domain to the Worker (Settings → Domains & Routes).
+   Cloudflare handles TLS automatically.
 3. Backend `CORS_ORIGINS=["https://yourname.me"]`.
+
+#### ⚠️ Where `VITE_*` variables go
+
+Vite **inlines** `import.meta.env.VITE_*` as literal strings during
+`npm run build`. They are not read at runtime. So they must exist as
+**build variables**, not Worker runtime variables/secrets:
+
+| Deploy path | Where to set `VITE_API_BASE_URL`, `VITE_TURN_*` |
+| ----------- | ----------------------------------------------- |
+| Cloudflare builds from GitHub (Workers Builds) | Worker → **Settings → Build → Build variables and secrets** |
+| `wrangler deploy` from a laptop/CI | `frontend-web/.env.local` (gitignored) on the machine that runs the build |
+
+Setting them under the Worker's runtime **Variables and Secrets** has **no
+effect** — the build has already finished by then. After changing any of them
+you must **rebuild and redeploy**; saving alone changes nothing.
+
+> The repo is public: never commit `VITE_TURN_CREDENTIAL`. It does end up
+> readable in the shipped JS bundle (unavoidable for static TURN credentials),
+> but keep it out of git so it can be rotated.
 
 ### Option B — Run the frontend on the EC2 (single domain)
 
@@ -224,6 +258,9 @@ server, then containerize it:
 ## 9. Phase 6 — App deploy on EC2 (Caddy + api + postgres + redis)
 
 Create these files on the EC2 (e.g. in `~/englishtalker/deploy/`).
+
+> The listing below is abridged — `deploy/docker-compose.prod.yml` in the repo
+> is the source of truth and also defines the `coturn` service (§10).
 
 `Caddyfile` (auto-HTTPS for the API; add the `web` block for Option B):
 
@@ -336,7 +373,12 @@ TURN_REALM=englishspeaker.me
 TURN_USER=etturn
 TURN_PASSWORD=<openssl rand -hex 24>
 TURN_EXTERNAL_IP=<the EC2 Elastic IP>
+TURN_INTERNAL_IP=<the EC2 private IP — `hostname -I | awk '{print $1}'`>
 ```
+
+`TURN_INTERNAL_IP` is the address the instance actually holds (e.g.
+`172.31.45.14`); AWS NATs the Elastic IP onto it. coturn binds and relays there
+and advertises `TURN_EXTERNAL_IP` in the candidates.
 
 `coturn` is already defined in `deploy/docker-compose.prod.yml`. Start it:
 
@@ -348,6 +390,18 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml logs coturn | tai
 It runs with `network_mode: host` on purpose — coturn writes its own IP and
 ports into the ICE candidates it hands out, and Docker's bridge NAT would
 advertise container addresses no browser can reach.
+
+Host networking has a catch, which is why `--listening-ip` / `--relay-ip` are
+pinned: coturn can see the Docker bridges (`172.17.0.1`, `172.19.0.1`) as well
+as the real NIC, and left to auto-discovery it spreads allocations across all of
+them. Sockets that land on a bridge are unreachable from the internet, so calls
+fail intermittently with no error anywhere. Confirm the pinning took effect:
+
+```bash
+docker logs deploy-coturn-1 2>&1 | grep -A5 'Relay address'
+```
+
+Exactly one relay address should be listed, and it must be `TURN_INTERNAL_IP`.
 
 ### 4. Point the frontend at it
 
@@ -398,17 +452,48 @@ DATABASE_URL=postgresql+asyncpg://englishtalker:<strong-password>@db:5432/englis
 
 REDIS_URL=redis://redis:6379/0
 ADMIN_USERNAMES=["<your-admin-username>"]
-ANTHROPIC_API_KEY=<key>         # only if using the AI coach (costs $ per call)
+
+# --- AI (docs/18_AI_Provider_Architecture.md) ---
+# Set at least ONE key, or every AI feature serves a labelled demo stub.
+# Two vendors is the point of the provider layer: with one key, that vendor's
+# outage takes the whole AI surface down to the stub.
+OPENAI_API_KEY=<sk-proj-...>
+ANTHROPIC_API_KEY=<sk-ant-...>  # strongly recommended as the fallback
+
+# 30-day spend ceiling in USD. AI is refused above it; a warning logs at 70%.
+# Never 0 (unlimited) in production — a looping bug should cost an alert, not
+# a month of runway.
+AI_MONTHLY_BUDGET_USD=50
+
+# Incident kill switch. false => all AI serves the stub, no calls, no spend.
+# The app keeps working; only the AI extras go quiet.
+AI_ENABLED=true
+
+# Per-task model routing. Omit to use the tested defaults in app/ai/routing.py.
+# AI_ROUTES='{"rescue:free":{"chain":["openai:gpt-4o-mini"],"timeout_s":3.0}}'
+
+# --- Speech-to-Text ---
+# MUST be "tiny" and MUST match the model baked into the Dockerfile. The image
+# pre-downloads only `tiny` under HF_HOME=/opt/models. Leaving this unset means
+# the default "base" is used, and the container downloads ~150 MB from Hugging
+# Face on the FIRST transcription request — which blocks that request and looks
+# like a broken mic. On a 2 GB t3.small, keep both at "tiny".
+STT_MODEL=tiny
 
 # TURN relay for voice (§10). Voice between two DEVICES fails without these.
 TURN_REALM=englishspeaker.me
 TURN_USER=etturn
 TURN_PASSWORD=<openssl rand -hex 24>
 TURN_EXTERNAL_IP=<EC2 Elastic IP>
+TURN_INTERNAL_IP=<EC2 private IP>
 ```
 
 > The `TURN_*` values are read by Compose itself, not by the API container, so
 > always start the stack with `--env-file .env.prod` (see the compose header).
+>
+> Adding a `TURN_*` value to `.env.prod` is not enough on its own — Compose bakes
+> the flags into the container at create time. Recreate coturn afterwards:
+> `docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --force-recreate coturn`.
 
 **Secrets handling:** keep `.env.prod` on the box with `chmod 600` (or store the
 values in **AWS SSM Parameter Store** and render the file on deploy). Never commit
@@ -635,6 +720,8 @@ transcriptions or offload STT to the browser (Web Speech API) where possible.
 | `type "vector" does not exist`             | pgvector extension not enabled           | `CREATE EXTENSION vector;` in the app DB (§6)           |
 | Mic / voice / STT silently fail            | Site not on HTTPS                        | Fix TLS; browsers block mic on http://                  |
 | Voice works between two browsers on one PC, fails between two devices | No TURN relay | Deploy coturn and set `VITE_TURN_*` in Cloudflare Pages, then **redeploy** the frontend (§10) |
+| "The TURN relay did not answer", but coturn is up and 3478 is open | coturn was created with empty `${TURN_*}` — check `docker logs deploy-coturn-1` for `Wrong user account: :` or `Default realm:` with nothing after it | `up -d --force-recreate coturn` **with** `--env-file .env.prod` (§10) |
+| Cross-device voice works sometimes, fails other times | coturn relaying on a Docker bridge IP instead of the NIC | Set `TURN_INTERNAL_IP` and recreate coturn; only one relay address should appear in its log (§10) |
 | CORS errors in the browser                 | `CORS_ORIGINS` wrong                     | Set it to the exact frontend origin                     |
 | Caddy can't get a cert                     | 80/443 closed or DNS not pointing at EIP | Open ports; verify the A record                         |
 | Disk full / DB won't write                 | EBS volume filled (DB shares it)         | Grow the gp3 volume; check backup retention/log sizes   |

@@ -5,7 +5,9 @@
 set -euo pipefail
 
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMPOSE="docker compose -f ${DEPLOY_DIR}/docker-compose.prod.yml"
+# `--env-file` is required so Compose can substitute the ${VAR} placeholders
+# (Postgres creds, coturn settings) in the compose file.
+COMPOSE="docker compose --env-file ${DEPLOY_DIR}/.env.prod -f ${DEPLOY_DIR}/docker-compose.prod.yml"
 BACKUP_DIR="${HOME}/backups"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 OUT="${BACKUP_DIR}/englishtalker-${STAMP}.sql.gz"

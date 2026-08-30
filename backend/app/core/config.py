@@ -51,14 +51,39 @@ class Settings(BaseSettings):
     # lower it (and add refresh tokens) if you need tighter security.
     access_token_expire_minutes: int = 60 * 24 * 7
 
-    # --- AI / Claude (in-call helpers like the AI coach) ---
-    # Leave unset to run the demo with a clearly-labelled stub.
-    # Set ANTHROPIC_API_KEY to enable real Claude-powered help.
+    # --- AI provider layer (docs/18_AI_Provider_Architecture.md) ---
+    # Master switch. Set false to force every AI task to the labelled stub — the
+    # app keeps working (rooms, voice, chat) and only the AI extras go quiet.
+    # This is the incident kill switch; you want it to exist before you need it.
+    ai_enabled: bool = True
+
+    # API keys. Set EITHER of these and the app uses it; set neither and
+    # everything degrades to a clearly-labelled demo stub.
+    #   OpenAI:    https://platform.openai.com/api-keys      (sk-proj-...)
+    #   Anthropic: https://console.anthropic.com/settings/keys (sk-ant-...)
     anthropic_api_key: str | None = None
-    # Haiku is the in-call tier per docs/06_Architecture.md (low latency, low cost).
+    openai_api_key: str | None = None
+
+    # Which model runs which task, for which plan tier. This is the ONE place
+    # models are chosen — defaults live in app/ai/routing.py, and this patches
+    # individual entries without a deploy. Only the fields you name are replaced:
+    #   AI_ROUTES='{"rescue:free":{"chain":["openai:gpt-4o-mini"],"timeout_s":3.0}}'
+    #
+    # Measured 2026-08-29: gpt-4o-mini is ~5x CHEAPER per short call than
+    # gpt-5-nano despite a 3x higher list price — gpt-5-nano is a reasoning model
+    # and bills ~150 invisible thinking tokens to write one sentence. It is also
+    # slower and far more variable (1.75s-5.7s vs 1.3s).
+    ai_routes: str | None = None
+
+    # Org-wide 30-day spend ceiling in USD. AI is refused above it, and a warning
+    # is logged at 70%. 0 disables the cap — do NOT ship with 0: a looping bug
+    # should cost you an alert, not a month of runway (docs §18.9).
+    ai_monthly_budget_usd: float = 50.0
+
+    # Legacy. `assist_model` is now unused — AssistantService goes through the
+    # provider layer. `translation_model` is still read by the not-yet-migrated
+    # TranslationService (docs §18.11, step 5).
     translation_model: str = "claude-haiku-4-5"
-    # In-room AI coach (sentence improvement / reply ideas) — same in-call tier.
-    assist_model: str = "claude-haiku-4-5"
 
     # --- Translation (in-room translator) ---
     # Engine for the translator (no LLM by default).

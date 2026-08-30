@@ -10,7 +10,18 @@ python-jose[cryptography]>=3.3
 passlib[bcrypt]>=1.7
 redis>=5.0
 pgvector>=0.3
-anthropic>=0.40
+# --- AI providers (docs/18_AI_Provider_Architecture.md) ---
+# Both are OPTIONAL at runtime: app/ai/registry.py skips a provider whose SDK or
+# API key is missing and degrades to a labelled stub. Install the one(s) you use.
+# Pinned to 1.x: AnthropicProvider calls `messages.parse()` and passes
+# `output_config`, neither of which exists in 0.x. A 0.x resolve would look fine
+# until the first Anthropic-routed request, then fail with AttributeError.
+anthropic>=1.0
+# OpenAI (ChatGPT). gpt-5-nano is the cheapest model on either vendor, so it is
+# the default for local development and CI. Pinned to 3.x: the adapter uses
+# `max_completion_tokens`, `reasoning_effort` and strict `response_format`,
+# and tests/test_ai_providers.py asserts they exist on the installed SDK.
+openai>=3.0
 # Async HTTP client (Google Translate provider, outbound calls).
 httpx>=0.27
 # Multipart parsing for file uploads (Speech-to-Text audio).

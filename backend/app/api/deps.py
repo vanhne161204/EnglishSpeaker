@@ -5,9 +5,12 @@ import uuid
 from fastapi import Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.factory import build_llm, build_transcriber, build_translator
+from app.ai.routing import AiTask
 from app.core.exceptions import AppError
 from app.core.security import decode_access_token
 from app.db.session import get_session
+from app.models.enums import PlanTier
 from app.models.user import User
 from app.repositories.category import CategoryRepository
 from app.repositories.doc import DocRepository
@@ -57,17 +60,55 @@ def get_note_service(session: AsyncSession = Depends(get_session)) -> NoteServic
     return NoteService(NoteRepository(session))
 
 
-def get_translation_service() -> TranslationService:
-    return TranslationService()
+async def get_optional_user(
+    authorization: str | None = Header(default=None),
+    session: AsyncSession = Depends(get_session),
+) -> User | None:
+    """The signed-in user, or None — never raises.
+
+    AI help stays available to anonymous callers (the room demo does not force a
+    login), but a signed-in user gets their own plan tier and their own spend
+    cap instead of the anonymous defaults.
+    """
+    if not authorization:
+        return None
+    try:
+        return await get_current_user(authorization, session)
+    except NotAuthenticatedError:
+        return None
 
 
-def get_assistant_service(session: AsyncSession = Depends(get_session)) -> AssistantService:
+def get_translation_service(
+    user: User | None = Depends(get_optional_user),
+) -> TranslationService:
+    """Wire the translator to its configured engine chain (docs §18.10).
+
+    The user is passed through only so an LLM-backed translation is metered and
+    budget-capped against the right account; Google and Argos ignore it.
+    """
+    return TranslationService(build_translator(user.id if user else None))
+
+
+def get_assistant_service(
+    session: AsyncSession = Depends(get_session),
+    user: User | None = Depends(get_optional_user),
+) -> AssistantService:
+    """Wire the in-room coach to its routed, metered, budget-capped provider.
+
+    Which model actually answers is decided by app/ai/routing.py from the task
+    and the caller's plan tier — not here (docs §18.5).
+    """
+    tier = PlanTier(user.plan) if user else PlanTier.free
+    llm, route = build_llm(
+        AiTask.rescue, tier, user_id=user.id if user else None
+    )
     # The doc repo lets the coach ground suggestions in a topic's trusted content.
-    return AssistantService(DocRepository(session))
+    return AssistantService(llm, route, DocRepository(session))
 
 
 def get_transcription_service() -> TranscriptionService:
-    return TranscriptionService()
+    """Wire speech-to-text to its configured engine chain (docs §18.10)."""
+    return TranscriptionService(build_transcriber())
 
 
 def get_user_service(session: AsyncSession = Depends(get_session)) -> UserService:

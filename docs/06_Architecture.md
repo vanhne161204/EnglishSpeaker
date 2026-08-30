@@ -188,14 +188,22 @@ The AI orchestrator routes to different Claude models by task, balancing latency
 [10_AI_Design.md](./10_AI_Design.md) for prompts):
 
 
-| Use case                                                    | Model                                              | Why                                                  |
-| ----------------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------- |
-| In-conversation suggestions / quick corrections (real time) | **Claude Haiku 4.5** (`claude-haiku-4-5-20251001`) | Lowest latency for "near real-time" help (PRD §8.8)  |
-| Post-conversation feedback report (async)                   | **Claude Sonnet 4.6** (`claude-sonnet-4-6`)        | Higher quality where latency is not critical         |
-| Complex/optional deep analysis                              | **Claude Opus 4.8** (`claude-opus-4-8`)            | Reserved for richest feedback; cost-gated to Premium |
+| Use case                                                    | Model                                    | Why                                                  |
+| ----------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------- |
+| In-conversation suggestions / quick corrections (real time) | **Claude Haiku 4.5** (`claude-haiku-4-5`) | Lowest latency for "near real-time" help (PRD §8.8)  |
+| Post-conversation feedback report (async)                   | **Claude Sonnet 5** (`claude-sonnet-5`)   | Free tier — good quality where latency is not critical |
+| IELTS band report / deep analysis                           | **Claude Opus 5** (`claude-opus-5`)       | Judgement task; cost-gated to Premium                |
 
+> Model IDs carry **no date suffix**. It is `claude-haiku-4-5`, never
+> `claude-haiku-4-5-20251001`.
 
-Models are configured per environment, not hard-coded, so they can be upgraded without code changes.
+The table above is the *intent*. The **authoritative, per-tier routing table lives
+in [18_AI_Provider_Architecture.md](./18_AI_Provider_Architecture.md) §18.5**, and is
+loaded from the `AI_ROUTES` environment variable — so models can be swapped per task
+and per plan tier without a code change or a deploy. Do not add a second copy of the
+model list here; keep this section as the summary and that one as the source of truth.
+
+Prompts and per-task reasoning effort: [10_AI_Design.md](./10_AI_Design.md).
 
 ---
 
@@ -478,7 +486,8 @@ variables, and CI/CD live in [13_Deployment.md](./13_Deployment.md).
 | 5   | Mode as a hard partition in matching            | Mode as a filter              | Guarantees the §7/§12 privacy rule cannot be violated by a relaxation tier                                    |
 | 6   | Task-routed Claude models (Haiku/Sonnet/Opus)   | Single model for all AI       | Latency for in-call help vs quality for reports; cost control on Premium                                      |
 | 7   | Centralized Entitlement service                 | Inline checks per endpoint    | One consistent place for limits; supports "explain the limit" UX and no mid-call cut-off                      |
-| 8   | Provider interfaces for STT and LLM             | Direct SDK calls              | Swap/upgrade providers without product code changes                                                           |
+| 8   | Provider interfaces for STT and LLM             | Direct SDK calls              | Swap/upgrade providers without product code changes. **Specified in [18_AI_Provider_Architecture.md](./18_AI_Provider_Architecture.md)** — three ports (`LLMProvider`, `Transcriber`, `Translator`), adapters per vendor, config-driven routing. Implemented 2026-08-29 in `backend/app/ai/`; see §18.11 for status and the measured findings |
+| 9   | Per-call cost metering (`ai_usage`)             | Provider dashboards only      | Cost per user is the input to pricing and to the free-tier caps; vendor dashboards cannot attribute spend to a user, a tier, or a feature (§18.8) |
 
 
 ---

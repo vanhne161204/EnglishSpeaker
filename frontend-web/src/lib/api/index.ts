@@ -25,7 +25,9 @@ import type {
   DocSectionCreate,
   DocSectionUpdate,
   DocSummary,
+  BandPoint,
   DocUpdate,
+  FeedbackSummary,
   Message,
   ModerateResult,
   ModerationAction,
@@ -40,7 +42,10 @@ import type {
   QuestionUpdate,
   Room,
   RoomCreate,
+  ReportMode,
   RoomKind,
+  SentenceFeedback,
+  SessionReport,
   Subscription,
   Topic,
   TopicCreate,
@@ -223,6 +228,37 @@ export const voiceSocketUrl = (roomId: string, userId: string, name: string) =>
   `${WS_BASE_URL}/ws/voice/${roomId}?user_id=${encodeURIComponent(userId)}&name=${encodeURIComponent(name)}`;
 
 /** Transcribe recorded audio (multipart). Powered by faster-whisper, else a stub. */
+// ----- Coach Report layer 1 (docs/10_AI_Design.md §10.3) -----
+
+/** Grade my own speech from one session. Costs money and takes a few seconds,
+ *  so it is triggered by the learner, never automatically. Repeat calls are
+ *  free: the server reuses anything it has already graded. */
+export const assessRoom = (roomId: string) =>
+  apiRequest<SentenceFeedback[]>(`/feedback/rooms/${roomId}`, { method: "POST" });
+
+/** My already-generated report for one session (no AI call). */
+export const roomReport = (roomId: string) =>
+  apiRequest<SentenceFeedback[]>(`/feedback/rooms/${roomId}`);
+
+export const myFeedback = (limit = 50) =>
+  apiRequest<SentenceFeedback[]>("/feedback/me", { query: { limit } });
+
+export const myFeedbackSummary = () => apiRequest<FeedbackSummary>("/feedback/me/summary");
+
+// ----- Coach Report layer 2: IELTS bands (docs §10.3.7) -----
+
+/** Band my speaking in one session. Costs money and takes ~10s. */
+export const buildBandReport = (roomId: string, mode: ReportMode = "conversation") =>
+  apiRequest<SessionReport>(`/reports/rooms/${roomId}`, { method: "POST", query: { mode } });
+
+/** My stored report for a session, or null. No AI call — free to load on mount. */
+export const bandReport = (roomId: string) =>
+  apiRequest<SessionReport | null>(`/reports/rooms/${roomId}`);
+
+/** Band over time, oldest first, ready to plot. */
+export const bandHistory = (limit = 30) =>
+  apiRequest<BandPoint[]>("/reports/me/history", { query: { limit } });
+
 export async function transcribe(audio: Blob, language?: string): Promise<TranscriptionResult> {
   const form = new FormData();
   form.append("audio", audio, "clip.webm");
