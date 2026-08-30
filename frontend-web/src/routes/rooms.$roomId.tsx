@@ -24,8 +24,7 @@ import {
 import { ensureUser, randomGuestName, useIdentity } from "@/lib/identity";
 import { LANGS, topicEmoji } from "@/lib/presentation";
 import { useAiVoice } from "@/lib/voice/use-ai-voice";
-import { BandReport } from "@/components/room/band-report";
-import { CoachReport } from "@/components/room/coach-report";
+import { LeaveDialog } from "@/components/room/leave-dialog";
 import { IdeaPanel } from "@/components/room/idea-panel";
 import type { TranscriptLine } from "@/components/room/transcript-panel";
 import { TranscriptPanel } from "@/components/room/transcript-panel";
@@ -126,6 +125,7 @@ function RoomLive({
   // replaced in place instead of stacking a new line per partial result.
   const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
   const [interim, setInterim] = useState<TranscriptLine | null>(null);
+  const [leaving, setLeaving] = useState(false);
   // The coach report is per-account, so it needs a real login (not a guest id).
   const identity = useIdentity();
   const signedIn = !!identity?.username;
@@ -608,12 +608,13 @@ function RoomLive({
                   {voice.status === "connecting" ? "Joining…" : "🎙️ Join voice"}
                 </button>
               )}
-              <Link
-                to="/rooms"
-                className="rounded-full bg-destructive/90 text-destructive-foreground px-3 py-1.5 text-xs font-semibold"
+              <button
+                type="button"
+                onClick={() => setLeaving(true)}
+                className="rounded-full bg-destructive/90 px-3 py-1.5 text-xs font-semibold text-destructive-foreground hover:opacity-90"
               >
                 Leave
-              </Link>
+              </button>
             </div>
           </div>
 
@@ -796,19 +797,6 @@ function RoomLive({
         />
       </div>
 
-      {/* Coach report. Band first, then the per-sentence detail behind it —
-          that is the order a learner reads in (docs §10.3.14). */}
-      <div id="report-section" className="mt-5 grid scroll-mt-24 gap-5 lg:grid-cols-2 items-start">
-        <BandReport roomId={room.id} signedIn={signedIn} />
-        <CoachReport
-          roomId={room.id}
-          signedIn={signedIn}
-          onSave={(original, improved) =>
-            saveNote({ original_text: original, improved_text: improved, source: "ai" })
-          }
-        />
-      </div>
-
       {/* Topic detail — questions come from the topic's documentation (PRD §8.2) */}
       <div id="topic-section" className="scroll-mt-24">
         <TopicDetailCard topic={topic} topicId={topicId} onUse={(t) => setDraft(t)} />
@@ -839,6 +827,25 @@ function RoomLive({
           />
         </div>
       </div>
+
+      {/* Assessment happens on the way out, never beside a live conversation
+          (docs/10_AI_Design.md §10.3.2). Always optional. */}
+      <LeaveDialog
+        open={leaving}
+        roomId={room.id}
+        signedIn={signedIn}
+        onSave={(original, improved) =>
+          saveNote({ original_text: original, improved_text: improved, source: "ai" })
+        }
+        onLeave={() => {
+          setLeaving(false);
+          // Stop the mic before navigating; the unmount cleanup also leaves the
+          // room, so nothing is left holding the microphone.
+          live.stop();
+          void navigate({ to: "/rooms" });
+        }}
+        onCancel={() => setLeaving(false)}
+      />
 
       {/* Save / STT confirmation toast */}
       {notice && (
