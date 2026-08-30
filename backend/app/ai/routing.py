@@ -30,7 +30,10 @@ class AiTask(StrEnum):
     #: In-room "I'm stuck" coach (docs/10_AI_Design.md §10.2). Latency-critical.
     rescue = "rescue"
     #: In-room translator, when backed by an LLM rather than Google/Argos.
-    translate = "translate"
+    #: NOT named `translate`: a StrEnum member shadows `str.translate`, so
+    #: `task.translate(...)` would silently return the member instead of the
+    #: string method. mypy catches this; the name avoids it entirely.
+    translation = "translation"
     #: Coach Report layer 1 — per-sentence grammar/vocab (§10.3.1).
     sentence_check = "sentence_check"
     #: Coach Report layer 2 — the IELTS band report (§10.3.7).
@@ -79,13 +82,13 @@ DEFAULT_ROUTES: dict[tuple[AiTask, PlanTier], Route] = {
         timeout_s=_RESCUE_TIMEOUT_S,
     ),
     # --- Translator (only used when TRANSLATION_PROVIDER routes to an LLM) ---
-    (AiTask.translate, PlanTier.free): Route(
+    (AiTask.translation, PlanTier.free): Route(
         chain=("openai:gpt-4o-mini", "anthropic:claude-haiku-4-5"),
         effort=Effort.low,
         max_tokens=1024,
         timeout_s=10.0,
     ),
-    (AiTask.translate, PlanTier.premium): Route(
+    (AiTask.translation, PlanTier.premium): Route(
         chain=("openai:gpt-4o-mini", "anthropic:claude-haiku-4-5"),
         effort=Effort.low,
         max_tokens=1024,

@@ -23,7 +23,6 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Sequence
-from decimal import Decimal
 
 from app.ai.errors import ProviderError
 from app.ai.metering import BudgetExceeded
@@ -118,7 +117,7 @@ class IeltsService:
                 drills=[d.model_dump() for d in report.drills],
                 metrics=_metrics_dict(metrics),
                 model=getattr(self, "_last_model", "unknown"),
-                quotes_removed=Decimal(removed),
+                quotes_removed=removed,
             )
         )
 

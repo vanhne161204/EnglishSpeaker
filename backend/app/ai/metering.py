@@ -121,8 +121,8 @@ class MeteredProvider:
 DAILY_CALL_CAPS: dict[tuple[AiTask, PlanTier], int] = {
     (AiTask.rescue, PlanTier.free): 30,
     (AiTask.rescue, PlanTier.premium): 200,
-    (AiTask.translate, PlanTier.free): 100,
-    (AiTask.translate, PlanTier.premium): 500,
+    (AiTask.translation, PlanTier.free): 100,
+    (AiTask.translation, PlanTier.premium): 500,
     (AiTask.sentence_check, PlanTier.free): 4,
     (AiTask.sentence_check, PlanTier.premium): 40,
     (AiTask.ielts_report, PlanTier.free): 2,
@@ -131,7 +131,7 @@ DAILY_CALL_CAPS: dict[tuple[AiTask, PlanTier], int] = {
 
 _FRIENDLY: dict[AiTask, str] = {
     AiTask.rescue: "coaching suggestions",
-    AiTask.translate: "translations",
+    AiTask.translation: "translations",
     AiTask.sentence_check: "sentence feedback",
     AiTask.ielts_report: "practice reports",
 }

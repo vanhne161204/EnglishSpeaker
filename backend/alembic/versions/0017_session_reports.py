@@ -51,7 +51,7 @@ def upgrade() -> None:
         sa.Column("drills", sa.JSON(), nullable=True),
         sa.Column("metrics", sa.JSON(), nullable=True),
         sa.Column("model", sa.String(length=48), nullable=False, server_default=""),
-        sa.Column("quotes_removed", sa.Numeric(4, 0), server_default="0", nullable=False),
+        sa.Column("quotes_removed", sa.Integer(), server_default="0", nullable=False),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
         ),

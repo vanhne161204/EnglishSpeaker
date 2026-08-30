@@ -16,6 +16,8 @@ from app.ai.ports import LLMProvider
 from app.ai.providers.stub import StubProvider
 from app.ai.registry import get_provider
 from app.ai.routing import AiTask, Route, get_route
+from app.ai.stt_port import Transcriber, TranscriberChain
+from app.ai.translate_port import Translator, TranslatorChain
 from app.core.config import settings
 from app.models.enums import PlanTier
 
@@ -68,7 +70,7 @@ def build_llm(
     return stack, route
 
 
-def build_translator(user_id: uuid.UUID | None = None) -> object:
+def build_translator(user_id: uuid.UUID | None = None) -> Translator:
     """Translator chain from ``TRANSLATION_PROVIDER`` (docs §18.10).
 
     Order is configuration, not code — the old service hardcoded
@@ -82,10 +84,9 @@ def build_translator(user_id: uuid.UUID | None = None) -> object:
         LLMTranslator,
         StubTranslator,
     )
-    from app.ai.translate_port import TranslatorChain
 
     choice = (settings.translation_provider or "auto").lower()
-    engines: list[object] = []
+    engines: list[Translator] = []
 
     def add_google() -> None:
         engines.append(GoogleTranslator(settings.google_translate_api_key))
@@ -96,7 +97,7 @@ def build_translator(user_id: uuid.UUID | None = None) -> object:
     def add_llm() -> None:
         # Reuses the metered, budget-capped LLM stack, so translation spend lands
         # in ai_usage with the rest.
-        llm, route = build_llm(AiTask.translate, PlanTier.free, user_id)
+        llm, route = build_llm(AiTask.translation, PlanTier.free, user_id)
         engines.append(LLMTranslator(llm, route.max_tokens, route.timeout_s))
 
     if choice == "google":
@@ -111,20 +112,19 @@ def build_translator(user_id: uuid.UUID | None = None) -> object:
         add_llm()
 
     engines.append(StubTranslator())
-    return TranslatorChain(engines)  # type: ignore[arg-type]
+    return TranslatorChain(engines)
 
 
-def build_transcriber() -> object:
+def build_transcriber() -> Transcriber:
     """Speech-to-text chain from ``STT_PROVIDER`` (docs §18.10)."""
     from app.ai.providers.transcribers import (
         DeepgramTranscriber,
         FasterWhisperTranscriber,
         StubTranscriber,
     )
-    from app.ai.stt_port import TranscriberChain
 
     choice = (settings.stt_provider or "auto").lower()
-    engines: list[object] = []
+    engines: list[Transcriber] = []
 
     if choice == "deepgram":
         if settings.deepgram_api_key:
@@ -141,4 +141,4 @@ def build_transcriber() -> object:
             )
 
     engines.append(StubTranscriber())
-    return TranscriberChain(engines)  # type: ignore[arg-type]
+    return TranscriberChain(engines)

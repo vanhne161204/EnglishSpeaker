@@ -8,8 +8,9 @@ One session produces one report **per learner** — each visible only to its own
 """
 
 import uuid
+from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Index, Numeric, String, Text
+from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -41,13 +42,13 @@ class SessionReport(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         String(20), default="conversation", server_default="conversation", nullable=False
     )
 
-    band_fluency: Mapped[float] = mapped_column(_BAND, nullable=False)
-    band_lexical: Mapped[float] = mapped_column(_BAND, nullable=False)
-    band_grammar: Mapped[float] = mapped_column(_BAND, nullable=False)
+    band_fluency: Mapped[Decimal] = mapped_column(_BAND, nullable=False)
+    band_lexical: Mapped[Decimal] = mapped_column(_BAND, nullable=False)
+    band_grammar: Mapped[Decimal] = mapped_column(_BAND, nullable=False)
     # Null until real pronunciation scoring exists. No model accepts audio, so a
     # number here today would be invented (§10.3.11).
-    band_pronunciation: Mapped[float | None] = mapped_column(_BAND, default=None)
-    band_overall: Mapped[float] = mapped_column(_BAND, nullable=False)
+    band_pronunciation: Mapped[Decimal | None] = mapped_column(_BAND, default=None)
+    band_overall: Mapped[Decimal] = mapped_column(_BAND, nullable=False)
 
     pronunciation_assessed: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="0", nullable=False
@@ -59,7 +60,7 @@ class SessionReport(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
     summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    next_band: Mapped[float] = mapped_column(_BAND, nullable=False)
+    next_band: Mapped[Decimal] = mapped_column(_BAND, nullable=False)
 
     # Per-criterion evidence and justification. Evidence holds the learner's own
     # words ONLY — `strip_foreign_quotes` runs before anything is written here.
@@ -74,5 +75,5 @@ class SessionReport(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # How many evidence quotes `strip_foreign_quotes` had to remove. Non-zero
     # means the prompt's role separation is slipping — surfaced to admin review.
     quotes_removed: Mapped[int] = mapped_column(
-        Numeric(4, 0), default=0, server_default="0", nullable=False
+        Integer, default=0, server_default="0", nullable=False
     )

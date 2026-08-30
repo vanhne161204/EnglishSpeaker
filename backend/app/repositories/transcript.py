@@ -5,8 +5,9 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from datetime import datetime
+from typing import cast
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import CursorResult, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.transcript import TranscriptSegment
@@ -75,4 +76,7 @@ class TranscriptRepository:
         stmt = delete(TranscriptSegment).where(TranscriptSegment.user_id == user_id)
         if room_id is not None:
             stmt = stmt.where(TranscriptSegment.room_id == room_id)
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        # A DELETE yields a CursorResult, which carries `rowcount`; the stubs
+        # only promise the narrower `Result`.
+        result = cast(CursorResult, await self.session.execute(stmt))
+        return int(result.rowcount or 0)
