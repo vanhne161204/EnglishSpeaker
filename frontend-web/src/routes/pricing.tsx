@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { PracticeLink } from "@/components/practice-link";
 
 export const Route = createFileRoute("/pricing")({
   head: () => ({
@@ -22,7 +23,7 @@ export const Route = createFileRoute("/pricing")({
 });
 
 const FREE = [
-  "No sign-up — just start",
+  "Free account — username and password only",
   "Set level and interests",
   "Join basic rooms",
   "Match One — with daily limits",
@@ -62,7 +63,7 @@ function PricingPage() {
           tagline="For new and casual learners."
           features={FREE}
           cta="Start practicing"
-          ctaTo="/rooms"
+          ctaPractice
           tone="card"
         />
         <PlanCard
@@ -135,6 +136,7 @@ function PlanCard({
   features,
   cta,
   ctaTo = "/contact",
+  ctaPractice,
   tone,
   highlight,
 }: {
@@ -145,6 +147,8 @@ function PlanCard({
   features: string[];
   cta: string;
   ctaTo?: string;
+  /** Route through /login when signed out — the free plan leads into the app. */
+  ctaPractice?: boolean;
   tone: "card" | "primary";
   highlight?: boolean;
 }) {
@@ -188,12 +192,20 @@ function PlanCard({
           </li>
         ))}
       </ul>
-      <Link
-        to={ctaTo}
-        className={`mt-7 block rounded-full px-5 py-3 text-center text-sm font-semibold ${isPrimary ? "bg-primary text-primary-foreground" : "bg-foreground text-background"} hover:opacity-90`}
-      >
-        {cta}
-      </Link>
+      {ctaPractice ? (
+        <PracticeLink
+          className={`mt-7 block rounded-full px-5 py-3 text-center text-sm font-semibold ${isPrimary ? "bg-primary text-primary-foreground" : "bg-foreground text-background"} hover:opacity-90`}
+        >
+          {cta}
+        </PracticeLink>
+      ) : (
+        <Link
+          to={ctaTo}
+          className={`mt-7 block rounded-full px-5 py-3 text-center text-sm font-semibold ${isPrimary ? "bg-primary text-primary-foreground" : "bg-foreground text-background"} hover:opacity-90`}
+        >
+          {cta}
+        </Link>
+      )}
     </div>
   );
 }
@@ -201,7 +213,7 @@ function PlanCard({
 const FAQS = [
   {
     q: "Is there really a free plan?",
-    a: "Yes. The free plan needs no sign-up — just start. Join rooms, use Match One and Random Match, and get AI suggestions every day.",
+    a: "Yes. The free plan costs nothing — you just pick a username and password, with no email or card. Join rooms, use Match One and Random Match, and get AI suggestions every day.",
   },
   {
     q: "Can I cancel anytime?",

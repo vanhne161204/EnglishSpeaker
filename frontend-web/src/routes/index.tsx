@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import heroImg from "@/assets/hero-conversation.jpg";
 import bubblesImg from "@/assets/pattern-bubbles.jpg";
+import { PracticeLink } from "@/components/practice-link";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -44,12 +45,9 @@ function Home() {
               coach helps you sound natural — and you save every great sentence for later.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link
-                to="/rooms"
-                className="rounded-full bg-primary px-6 py-3.5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-glow)] hover:opacity-90"
-              >
+              <PracticeLink className="rounded-full bg-primary px-6 py-3.5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-glow)] hover:opacity-90">
                 Start practicing free
-              </Link>
+              </PracticeLink>
               <Link
                 to="/how-it-works"
                 className="rounded-full border border-border bg-card px-6 py-3.5 text-sm font-semibold text-foreground hover:bg-muted"
@@ -219,12 +217,9 @@ function Home() {
             matches.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <Link
-              to="/rooms"
-              className="rounded-full bg-primary px-6 py-3.5 text-sm font-semibold text-primary-foreground hover:opacity-90"
-            >
+            <PracticeLink className="rounded-full bg-primary px-6 py-3.5 text-sm font-semibold text-primary-foreground hover:opacity-90">
               Start practicing
-            </Link>
+            </PracticeLink>
             <Link
               to="/features"
               className="rounded-full border border-secondary-foreground/30 px-6 py-3.5 text-sm font-semibold hover:bg-secondary-foreground/10"

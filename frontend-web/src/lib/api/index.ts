@@ -59,7 +59,7 @@ import type {
   UserUpdate,
 } from "./types";
 
-export { ApiError, API_BASE_URL, WS_BASE_URL } from "./client";
+export { ApiError, API_BASE_URL, WS_BASE_URL, setUnauthenticatedHandler } from "./client";
 export type * from "./types";
 
 // ----- System -----

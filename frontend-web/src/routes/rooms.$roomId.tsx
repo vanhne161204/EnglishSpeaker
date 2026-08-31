@@ -131,9 +131,10 @@ function RoomLive({
   const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
   const [interim, setInterim] = useState<TranscriptLine | null>(null);
   const [leaving, setLeaving] = useState(false);
-  // The coach report is per-account, so it needs a real login (not a guest id).
+  // The coach report is per-account. Everyone in a room is signed in (the route
+  // is guarded), but a token can expire mid-session, so the dialog still checks.
   const identity = useIdentity();
-  const signedIn = !!identity?.username;
+  const signedIn = !!identity?.token;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const isOwner = userId != null && room.owner_id === userId;
 

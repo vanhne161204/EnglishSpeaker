@@ -1,5 +1,5 @@
 import { requireAuth } from "@/lib/require-auth";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import type { ConversationMode } from "@/lib/api";
 import { currentUser, logout, randomGuestName, saveProfile } from "@/lib/identity";
@@ -15,7 +15,7 @@ export const Route = createFileRoute("/profile")({
       {
         name: "description",
         content:
-          "Set your display name, English level, interests, and practice mode. No sign-up — your profile lives on this device.",
+          "Set your display name, English level, interests, and practice mode. Saved to your account, on every device you use.",
       },
     ],
   }),
@@ -25,6 +25,7 @@ export const Route = createFileRoute("/profile")({
 const MODES: ConversationMode[] = ["normal", "incognito"];
 
 function ProfilePage() {
+  const router = useRouter();
   const [name, setName] = useState("");
   const [level, setLevel] = useState<string>("intermediate");
   const [interests, setInterests] = useState<string[]>([]);
@@ -44,9 +45,9 @@ function ProfilePage() {
       setInterests(parseInterests(u.interests));
       if (u.mode) setMode(u.mode);
       setUsername(u.username);
-    } else {
-      setName(randomGuestName());
     }
+    // No `else` branch: this page is behind a guard, so there is no signed-out
+    // state to invent a guest name for.
     setLoaded(true);
   }, []);
 
@@ -82,46 +83,32 @@ function ProfilePage() {
           Tell us how you <span className="italic text-primary">like to practice.</span>
         </h1>
         <p className="mt-5 max-w-2xl mx-auto text-muted-foreground leading-relaxed">
-          No sign-up needed. Your profile is saved on this device and used to find better partners
-          and topics. You can change it anytime.
+          Your profile is saved to your account and used to find better partners and topics. You can
+          change it anytime.
         </p>
       </section>
 
       <section className="container-page py-8 max-w-2xl mx-auto">
         <form onSubmit={submit} className="rounded-4xl border border-border bg-card p-8 space-y-7">
           {/* Login status */}
-          {loaded &&
-            (username ? (
-              <div className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
-                <span className="text-sm text-emerald-800">
-                  Logged in as <span className="font-medium">@{username}</span> — your profile is
-                  saved to this account.
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    logout();
-                    setUsername(null);
-                    setName(randomGuestName());
-                  }}
-                  className="flex-none rounded-full border border-emerald-600/40 px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-500/10"
-                >
-                  Log out
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-muted/40 px-4 py-3">
-                <span className="text-sm text-muted-foreground">
-                  You're a guest. Log in to keep this profile across devices.
-                </span>
-                <Link
-                  to="/login"
-                  className="flex-none rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground"
-                >
-                  Log in
-                </Link>
-              </div>
-            ))}
+          {loaded && username && (
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
+              <span className="text-sm text-emerald-800">
+                Logged in as <span className="font-medium">@{username}</span> — your profile is
+                saved to this account.
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  logout();
+                  void router.navigate({ to: "/" });
+                }}
+                className="flex-none rounded-full border border-emerald-600/40 px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-500/10"
+              >
+                Log out
+              </button>
+            </div>
+          )}
 
           {/* Display name */}
           <Field title="Display name" hint="Other learners see this in rooms.">

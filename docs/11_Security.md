@@ -187,6 +187,45 @@ Send them to login with a `next` parameter, then return them where they were
 going. A learner who clicks a shared room link and is bounced to an unexplained
 home page usually does not come back.
 
+Guarding takes **two** pieces, and one alone is not enough:
+
+| Piece | Where | Covers |
+|---|---|---|
+| `requireAuth()` in `beforeLoad` | each guarded route | client-side navigation (clicking a link) |
+| `<AuthWatcher>` | `__root.tsx` | hard page loads, and logging out while on a guarded page |
+
+`beforeLoad` cannot do the job by itself. On a hard load it runs on the
+**server**, where `localStorage` does not exist, so it has to let the render
+through — and it is not re-run once the client hydrates. Without the watcher,
+opening `/rooms` in a fresh tab shows the page to a signed-out visitor until the
+first API call 401s.
+
+The same asymmetry runs the other way. `/login` redirects an **already** signed-in
+visitor to `next ?? /rooms`, so no one is shown a login form for a session they
+already have.
+
+### Signed-in state in the UI
+
+Identity lives in `localStorage`, which the server cannot read, so the first
+paint of any auth-dependent element is unavoidably ignorant. Rendering the
+signed-out version and swapping it a frame later makes a live session look
+logged out — the header flashes "Log in" at someone who is already in a room.
+
+The rule: **render a neutral placeholder until hydration, never a guess.**
+`useHydrated()` in `lib/identity.ts` is that flag, and the header, the account
+menu and the footer's Admin link all gate on it.
+
+Two more consequences of "an account is required":
+
+- **The header has two navs.** A visitor sees the marketing pages; a signed-in
+  learner sees Rooms / Warm-up / Match / Notes. Showing a visitor links that only
+  bounce them to `/login` is worse than not showing them.
+- **A dead token signs itself out.** `apiRequest` calls the handler registered by
+  `identity.ts` on a **401 that carried a token** — expired or revoked — which
+  clears the session and lets `<AuthWatcher>` move the user to `/login`. A 401
+  with no token is just an anonymous call and clears nothing; a **403** never
+  logs anyone out, because it means "signed in, but not allowed here".
+
 ### The scoping rule
 
 For any endpoint marked 🔒:

@@ -1,7 +1,7 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { login, register } from "@/lib/api";
-import { loginWithAuth } from "@/lib/identity";
+import { currentUser, loginWithAuth, useIdentity } from "@/lib/identity";
 
 export const Route = createFileRoute("/login")({
   // `next` remembers where the visitor was headed, so a shared room link still
@@ -12,13 +12,19 @@ export const Route = createFileRoute("/login")({
     // letting an attacker send people to a lookalike site after login.
     return next && next.startsWith("/") && !next.startsWith("//") ? { next } : {};
   },
+  // Already signed in? There is nothing to do here. Showing the form to someone
+  // who is logged in is the mirror image of showing "Log in" in the header.
+  beforeLoad: ({ search }) => {
+    if (typeof window === "undefined") return;
+    if (currentUser()?.token) throw redirect({ to: search.next ?? "/rooms", replace: true });
+  },
   head: () => ({
     meta: [
       { title: "Log in — EnglishTalker" },
       {
         name: "description",
         content:
-          "Log in or create an account with a username and password to keep your profile and notes across devices. Optional — guests can practice without an account.",
+          "Log in or create an account with a username and password. Your rooms, transcripts, notes and coach reports are saved to your account.",
       },
     ],
   }),
@@ -30,6 +36,7 @@ type Mode = "login" | "register";
 function LoginPage() {
   const navigate = useNavigate();
   const { next } = Route.useSearch();
+  const identity = useIdentity();
   const [mode, setMode] = useState<Mode>("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -48,15 +55,27 @@ function LoginPage() {
           : await register(username.trim(), password);
       loginWithAuth(res);
       // Return the visitor to whatever sent them here — a shared room link, a
-      // warm-up they clicked — rather than dumping everyone on /profile.
-      // `validateSearch` has already rejected anything that is not a local path.
-      navigate({ to: next ?? "/profile" });
+      // warm-up they clicked. `validateSearch` has already rejected anything
+      // that is not a local path.
+      //
+      // With no `next`, the two modes want different landings: a returning user
+      // came back to practise, while a brand-new account has a display name of
+      // just their username, so send them to /profile once to set it.
+      // `replace` keeps /login out of history — pressing Back after signing in
+      // should not return to the login form.
+      navigate({ to: next ?? (mode === "login" ? "/rooms" : "/profile"), replace: true });
     } catch (e2) {
       setErr((e2 as Error).message);
     } finally {
       setBusy(false);
     }
   };
+
+  // The `beforeLoad` guard misses one case: a hard load of /login, where it runs
+  // on the server with no localStorage. Re-check once the client knows.
+  useEffect(() => {
+    if (identity?.token) navigate({ to: next ?? "/rooms", replace: true });
+  }, [identity, navigate, next]);
 
   const isLogin = mode === "login";
 
@@ -69,10 +88,17 @@ function LoginPage() {
         </h1>
         <p className="mt-4 text-sm text-muted-foreground leading-relaxed">
           {isLogin
-            ? "Log in to keep your profile and notes across devices. It's optional; you can also just start practicing as a guest."
+            ? "Your rooms, transcripts, saved sentences and coach reports live in your account."
             : "Pick a username and password. That's it — no email or phone needed."}
         </p>
       </div>
+
+      {/* Someone who clicked a room link and landed here deserves to know why. */}
+      {next && (
+        <p className="mt-6 rounded-2xl border border-primary/30 bg-primary/5 px-4 py-3 text-center text-sm text-foreground">
+          Sign in to continue — we&apos;ll take you straight there.
+        </p>
+      )}
 
       {/* Mode toggle */}
       <div className="mt-8 grid grid-cols-2 gap-1 rounded-full border border-border bg-muted/40 p-1">
@@ -140,10 +166,35 @@ function LoginPage() {
       </div>
 
       <p className="mt-5 text-center text-xs text-muted-foreground">
-        No account needed to practice.{" "}
-        <Link to="/rooms" className="text-primary hover:underline">
-          Continue as a guest
-        </Link>
+        {isLogin ? (
+          <>
+            New here?{" "}
+            <button
+              type="button"
+              onClick={() => {
+                setMode("register");
+                setErr(null);
+              }}
+              className="text-primary hover:underline"
+            >
+              Create a free account
+            </button>
+          </>
+        ) : (
+          <>
+            Already have an account?{" "}
+            <button
+              type="button"
+              onClick={() => {
+                setMode("login");
+                setErr(null);
+              }}
+              className="text-primary hover:underline"
+            >
+              Log in
+            </button>
+          </>
+        )}
       </p>
     </section>
   );

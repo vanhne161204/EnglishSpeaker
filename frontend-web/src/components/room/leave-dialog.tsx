@@ -21,7 +21,7 @@ import { CoachReport } from "@/components/room/coach-report";
 export interface LeaveDialogProps {
   open: boolean;
   roomId: string;
-  /** Reports need an account; guests are sent straight out. */
+  /** Reports need a live session; an expired token skips straight to leaving. */
   signedIn: boolean;
   /** Save a corrected sentence to the learner's notes. */
   onSave: (original: string, improved: string) => void;

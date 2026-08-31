@@ -10,8 +10,15 @@
 // never trusts any of it: the token is the only thing that proves who you are,
 // and every id in it is re-derived server-side.
 
-import { useSyncExternalStore } from "react";
-import { getMe, updateMe, type AuthResult, type ConversationMode, type User } from "@/lib/api";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import {
+  getMe,
+  setUnauthenticatedHandler,
+  updateMe,
+  type AuthResult,
+  type ConversationMode,
+  type User,
+} from "@/lib/api";
 
 const STORAGE_KEY = "et_user";
 
@@ -95,6 +102,22 @@ export function useIdentity(): StoredUser | null {
     getSnapshot,
     () => null, // server snapshot — no identity during SSR
   );
+}
+
+/**
+ * `false` while rendering on the server and on the very first client paint,
+ * `true` once React has hydrated.
+ *
+ * Identity lives in localStorage, which the server cannot see, so the first
+ * paint of any auth-dependent UI would be the signed-out version — a signed-in
+ * user would watch "Log in" flash and then swap to their name. Components use
+ * this to render a neutral placeholder for that one frame instead of the wrong
+ * answer.
+ */
+export function useHydrated(): boolean {
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+  return hydrated;
 }
 
 /**
@@ -182,6 +205,10 @@ export function logout(): void {
   window.localStorage.removeItem(STORAGE_KEY);
   notify();
 }
+
+// An expired or revoked token should sign the user out on its own, rather than
+// leaving a session where every request 401s. See `setUnauthenticatedHandler`.
+setUnauthenticatedHandler(logout);
 
 /** Persist updated profile fields locally (after an API update, or for aliases). */
 export function setStoredUser(user: StoredUser): void {

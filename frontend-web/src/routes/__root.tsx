@@ -4,6 +4,7 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
@@ -11,7 +12,8 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
-import { logout, useIdentity } from "../lib/identity";
+import { logout, useHydrated, useIdentity } from "../lib/identity";
+import { isAdminPath, isProtectedPath } from "../lib/require-auth";
 
 function NotFoundComponent() {
   return (
@@ -125,21 +127,37 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
-const NAV = [
+// Two navs, because the header answers a different question depending on who is
+// looking. A visitor is being sold the product; a signed-in learner is trying to
+// get into a room. Showing a visitor links to Rooms / Warm-up / Match only to
+// bounce them to /login is the worst of both.
+const PUBLIC_NAV = [
+  { to: "/", label: "Home" },
+  { to: "/how-it-works", label: "How it works" },
+  { to: "/topics", label: "Topics" },
+  { to: "/pricing", label: "Pricing" },
+  { to: "/about", label: "About" },
+];
+
+// Profile is deliberately absent: it lives in the account menu, so the same
+// thing does not appear twice in one header.
+const APP_NAV = [
   { to: "/", label: "Home" },
   { to: "/warmup", label: "Warm-up" },
   { to: "/rooms", label: "Rooms" },
   { to: "/match", label: "Match" },
   { to: "/topics", label: "Topics" },
   { to: "/notes", label: "Notes" },
-  { to: "/profile", label: "Profile" },
-  { to: "/how-it-works", label: "How it works" },
-  { to: "/pricing", label: "Pricing" },
-  { to: "/about", label: "About" },
 ];
 
 function SiteHeader() {
   const [open, setOpen] = useState(false);
+  const identity = useIdentity();
+  const hydrated = useHydrated();
+  // Before hydration we cannot know who this is, so show the public nav — it is
+  // the subset that is correct for everybody.
+  const signedIn = hydrated && !!identity?.token;
+  const nav = signedIn ? APP_NAV : PUBLIC_NAV;
   return (
     <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-xl">
       <div className="container-page flex h-16 items-center justify-between">
@@ -150,7 +168,7 @@ function SiteHeader() {
           EnglishTalker
         </Link>
         <nav className="hidden md:flex items-center gap-1">
-          {NAV.map((n) => (
+          {nav.map((n) => (
             <Link
               key={n.to}
               to={n.to}
@@ -187,7 +205,7 @@ function SiteHeader() {
       {open && (
         <div className="md:hidden border-t border-border bg-background">
           <div className="container-page py-3 flex flex-col">
-            {NAV.map((n) => (
+            {nav.map((n) => (
               <Link
                 key={n.to}
                 to={n.to}
@@ -198,13 +216,6 @@ function SiteHeader() {
               </Link>
             ))}
             <MobileAccount onNavigate={() => setOpen(false)} />
-            <Link
-              to="/rooms"
-              onClick={() => setOpen(false)}
-              className="mt-2 rounded-full bg-primary px-5 py-2.5 text-center text-sm font-medium text-primary-foreground"
-            >
-              Start practicing
-            </Link>
           </div>
         </div>
       )}
@@ -212,14 +223,23 @@ function SiteHeader() {
   );
 }
 
-/** Desktop header account control: a profile chip + menu when logged in, else a
- *  "Log in" link. Login is optional — guests still get "Start practicing". */
+/** Desktop header account control: a profile chip + menu when signed in, else
+ *  "Log in" and a sign-up CTA. Practising requires an account, so the CTA sends
+ *  visitors to /login rather than to a room they would be bounced out of. */
 function AccountControl() {
   const identity = useIdentity();
+  const hydrated = useHydrated();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
-  const loggedIn = !!identity?.username;
 
-  if (!loggedIn) {
+  // One frame of neutral space instead of a wrong answer: rendering "Log in"
+  // here and swapping it for the user's name a moment later is the flicker that
+  // makes a signed-in session look signed out.
+  if (!hydrated) {
+    return <div className="h-9 w-32 rounded-full bg-muted/50" aria-hidden />;
+  }
+
+  if (!identity?.token) {
     return (
       <>
         <Link
@@ -229,7 +249,8 @@ function AccountControl() {
           Log in
         </Link>
         <Link
-          to="/rooms"
+          to="/login"
+          search={{ next: "/rooms" }}
           className="rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-[var(--shadow-soft)] hover:opacity-90"
         >
           Start practicing
@@ -240,104 +261,192 @@ function AccountControl() {
 
   const initial = identity.display_name.charAt(0).toUpperCase();
   return (
-    <div
-      className="relative"
-      onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setOpen(false)}
-    >
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-2 rounded-full border border-border bg-card px-2 py-1.5 pr-3 text-sm hover:bg-muted"
+    <>
+      <Link
+        to="/rooms"
+        className="rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-[var(--shadow-soft)] hover:opacity-90"
       >
-        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-          {initial}
-        </span>
-        <span className="max-w-[120px] truncate font-medium text-foreground">
-          {identity.display_name}
-        </span>
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
+        Start practicing
+      </Link>
+      <div
+        className="relative"
+        onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setOpen(false)}
+      >
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className="flex items-center gap-2 rounded-full border border-border bg-card px-2 py-1.5 pr-3 text-sm hover:bg-muted"
         >
-          <path d="M6 9l6 6 6-6" />
-        </svg>
-      </button>
-      {open && (
-        <div className="absolute right-0 mt-2 w-48 rounded-2xl border border-border bg-card p-1.5 shadow-lg">
-          <Link
-            to="/profile"
-            onClick={() => setOpen(false)}
-            className="block rounded-xl px-3 py-2 text-sm text-foreground hover:bg-muted"
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+            {initial}
+          </span>
+          <span className="max-w-[120px] truncate font-medium text-foreground">
+            {identity.display_name}
+          </span>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
           >
-            Edit profile
-          </Link>
-          <Link
-            to="/notes"
-            onClick={() => setOpen(false)}
-            className="block rounded-xl px-3 py-2 text-sm text-foreground hover:bg-muted"
-          >
-            My notes
-          </Link>
-          {identity.is_admin && (
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </button>
+        {open && (
+          <div className="absolute right-0 mt-2 w-56 rounded-2xl border border-border bg-card p-1.5 shadow-lg">
+            <div className="px-3 py-2">
+              <p className="truncate text-sm font-medium text-foreground">
+                {identity.display_name}
+              </p>
+              {identity.username && (
+                <p className="truncate text-xs text-muted-foreground">@{identity.username}</p>
+              )}
+            </div>
+            <div className="my-1 h-px bg-border" />
             <Link
-              to="/admin"
+              to="/profile"
               onClick={() => setOpen(false)}
               className="block rounded-xl px-3 py-2 text-sm text-foreground hover:bg-muted"
             >
-              Admin
+              Edit profile
             </Link>
-          )}
-          <button
-            onClick={() => {
-              logout();
-              setOpen(false);
-            }}
-            className="mt-0.5 block w-full rounded-xl px-3 py-2 text-left text-sm text-destructive hover:bg-destructive/10"
-          >
-            Log out
-          </button>
-        </div>
-      )}
-    </div>
+            <Link
+              to="/notes"
+              onClick={() => setOpen(false)}
+              className="block rounded-xl px-3 py-2 text-sm text-foreground hover:bg-muted"
+            >
+              My notes
+            </Link>
+            {identity.is_admin && (
+              <Link
+                to="/admin"
+                onClick={() => setOpen(false)}
+                className="block rounded-xl px-3 py-2 text-sm text-foreground hover:bg-muted"
+              >
+                Admin
+              </Link>
+            )}
+            <button
+              onClick={() => {
+                setOpen(false);
+                logout();
+                // Land somewhere that makes sense signed out. `<AuthWatcher>`
+                // would eject us from a protected page anyway, but going home
+                // deliberately reads as "you logged out", not as a redirect.
+                void router.navigate({ to: "/" });
+              }}
+              className="mt-0.5 block w-full rounded-xl px-3 py-2 text-left text-sm text-destructive hover:bg-destructive/10"
+            >
+              Log out
+            </button>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
 /** Mobile menu account row. */
 function MobileAccount({ onNavigate }: { onNavigate: () => void }) {
   const identity = useIdentity();
-  const loggedIn = !!identity?.username;
+  const hydrated = useHydrated();
+  const router = useRouter();
 
-  if (!loggedIn) {
+  if (!hydrated) return <div className="mt-2 h-11 rounded-full bg-muted/50" aria-hidden />;
+
+  if (!identity?.token) {
     return (
-      <Link
-        to="/login"
-        onClick={onNavigate}
-        className="mt-2 rounded-full border border-border bg-background px-5 py-2.5 text-center text-sm font-medium text-foreground"
-      >
-        Log in
-      </Link>
+      <>
+        <Link
+          to="/login"
+          onClick={onNavigate}
+          className="mt-2 rounded-full border border-border bg-background px-5 py-2.5 text-center text-sm font-medium text-foreground"
+        >
+          Log in
+        </Link>
+        <Link
+          to="/login"
+          search={{ next: "/rooms" }}
+          onClick={onNavigate}
+          className="mt-2 rounded-full bg-primary px-5 py-2.5 text-center text-sm font-medium text-primary-foreground"
+        >
+          Start practicing
+        </Link>
+      </>
     );
   }
   return (
-    <div className="mt-2 flex items-center justify-between rounded-2xl border border-border bg-card px-3 py-2">
-      <span className="truncate text-sm font-medium text-foreground">{identity.display_name}</span>
+    <>
+      <Link
+        to="/profile"
+        onClick={onNavigate}
+        className="mt-2 flex items-center justify-between rounded-2xl border border-border bg-card px-3 py-2"
+      >
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium text-foreground">
+            {identity.display_name}
+          </span>
+          {identity.username && (
+            <span className="block truncate text-xs text-muted-foreground">
+              @{identity.username}
+            </span>
+          )}
+        </span>
+        <span className="flex-none text-xs text-muted-foreground">Edit profile</span>
+      </Link>
       <button
         onClick={() => {
-          logout();
           onNavigate();
+          logout();
+          void router.navigate({ to: "/" });
         }}
-        className="text-sm font-medium text-destructive"
+        className="mt-2 rounded-full border border-destructive/30 px-5 py-2.5 text-sm font-medium text-destructive"
       >
         Log out
       </button>
-    </div>
+    </>
   );
 }
 
+/**
+ * Keeps the page in sync with who is signed in, on every render path.
+ *
+ * `beforeLoad` guards cannot do this alone: on a hard page load they run on the
+ * server, where localStorage does not exist, and they are not re-run after the
+ * client hydrates. This watcher runs in the browser, so it catches both the
+ * fresh-tab case and logging out while sitting on a protected page.
+ *
+ * It is convenience, not security — the API rejects the request either way.
+ */
+function AuthWatcher() {
+  const identity = useIdentity();
+  const hydrated = useHydrated();
+  const router = useRouter();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!isProtectedPath(pathname)) return;
+
+    if (!identity?.token) {
+      // `replace` so the back button does not bounce between the guarded page
+      // and the login screen.
+      void router.navigate({ to: "/login", search: { next: pathname }, replace: true });
+      return;
+    }
+    if (isAdminPath(pathname) && !identity.is_admin) {
+      void router.navigate({ to: "/", replace: true });
+    }
+  }, [hydrated, identity, pathname, router]);
+
+  return null;
+}
+
 function SiteFooter() {
+  const identity = useIdentity();
+  const hydrated = useHydrated();
+  const isAdmin = hydrated && !!identity?.is_admin;
   return (
     <footer className="border-t border-border bg-cream mt-24">
       <div className="container-page py-14 grid gap-10 md:grid-cols-4">
@@ -396,11 +505,15 @@ function SiteFooter() {
                 Contact
               </Link>
             </li>
-            <li>
-              <Link to="/admin" className="hover:text-foreground">
-                Admin
-              </Link>
-            </li>
+            {/* Only admins can open this page, so only admins should see it —
+                for everyone else it was a link that bounced them home. */}
+            {isAdmin && (
+              <li>
+                <Link to="/admin" className="hover:text-foreground">
+                  Admin
+                </Link>
+              </li>
+            )}
           </ul>
         </div>
       </div>
@@ -418,6 +531,7 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   return (
     <QueryClientProvider client={queryClient}>
+      <AuthWatcher />
       <div className="flex min-h-screen flex-col">
         <SiteHeader />
         <main className="flex-1">

@@ -62,6 +62,17 @@ export function authToken(): string | null {
   }
 }
 
+// Called when the server rejects a token we actually sent. `identity.ts`
+// registers `logout` here so an expired session clears itself instead of
+// leaving the user staring at a page where every action fails. Registration is
+// inverted (identity → client, not client → identity) to avoid a circular
+// import: identity already imports from this module.
+let onUnauthenticated: (() => void) | null = null;
+
+export function setUnauthenticatedHandler(handler: () => void): void {
+  onUnauthenticated = handler;
+}
+
 function buildUrl(path: string, query?: Record<string, QueryValue>): string {
   const url = `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
   if (!query) return url;
@@ -111,6 +122,15 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   const data = text ? safeJsonParse(text) : undefined;
 
   if (!response.ok) {
+    // 401 with a token attached means the session is dead — expired, or the
+    // account is gone. Drop it so the app falls back to the signed-out state
+    // and `<AuthWatcher>` moves the user to /login. A 401 with no token is just
+    // an anonymous call to a protected endpoint: nothing to clear.
+    //
+    // Deliberately not 403: that is "signed in, but not allowed here", which
+    // must not log anybody out.
+    if (response.status === 401 && token) onUnauthenticated?.();
+
     const envelope = (data as { error?: { code?: string; message?: string } } | undefined)?.error;
     throw new ApiError(
       envelope?.message ??
