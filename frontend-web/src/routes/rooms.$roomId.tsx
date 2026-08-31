@@ -659,7 +659,7 @@ function RoomLive({
           )}
 
           {/* Speakers grid */}
-          <div className="mt-6 grid grid-cols-2 sm:grid-cols-3 gap-4 sm:gap-5">
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <SpeakerTile
               name={displayName}
               you
@@ -971,11 +971,11 @@ function SpeakerTile({
 
 function EmptySeat() {
   return (
-    <div className="rounded-3xl border-2 border-dashed border-border p-4 flex flex-col items-center justify-center text-center min-h-[150px]">
-      <div className="h-16 w-16 sm:h-20 sm:w-20 rounded-full border-2 border-dashed border-border flex items-center justify-center text-muted-foreground text-2xl">
+    <div className="flex flex-col items-center justify-center rounded-3xl border-2 border-dashed border-border p-3 text-center">
+      <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-dashed border-border text-lg text-muted-foreground">
         ＋
       </div>
-      <div className="mt-3 text-xs text-muted-foreground">Empty seat</div>
+      <div className="mt-1.5 text-[11px] text-muted-foreground">Empty</div>
     </div>
   );
 }
