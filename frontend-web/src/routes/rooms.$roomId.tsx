@@ -559,166 +559,184 @@ function RoomLive({
           )}
 
           <div className="grid lg:grid-cols-12 gap-5">
-            {/* People stage with merged room info */}
-            <div className="rounded-4xl border border-border bg-gradient-to-br from-cream to-card p-5 sm:p-7 lg:col-span-8">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                    In the room
+            {/* Left column, in two stacked parts: who is in the room on top, the
+            translator below it. The seat grid is short and fixed — four tiles —
+            while the right column runs the full height of the script and the
+            chat, so the left half used to end in a large empty panel. The
+            translator now fills it, and `flex-1` on the lower part makes the two
+            columns finish level however tall the right one grows. */}
+            <div className="flex flex-col gap-5 lg:col-span-8">
+              {/* People stage with merged room info */}
+              <div className="rounded-4xl border border-border bg-gradient-to-br from-cream to-card p-5 sm:p-7">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                      In the room
+                    </div>
+                    <h1 className="mt-1 text-xl sm:text-2xl text-ink flex items-center gap-2">
+                      <span className="text-xl sm:text-2xl">{topicEmoji(room.topic)}</span>
+                      <span className="truncate">{room.title}</span>
+                    </h1>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                      <Tag>{room.mode}</Tag>
+                      <Tag>{room.kind === "one_on_one" ? "1-on-1" : "Group"}</Tag>
+                      {room.level && <Tag>{room.level}</Tag>}
+                      <span>
+                        · {peopleCount}/{room.capacity} seats
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <span
+                          className={`h-2 w-2 rounded-full inline-block ${connected ? "bg-emerald-500" : "bg-muted-foreground/50"}`}
+                        />
+                        {connected ? "Live" : "Connecting…"}
+                      </span>
+                    </div>
                   </div>
-                  <h1 className="mt-1 text-xl sm:text-2xl text-ink flex items-center gap-2">
-                    <span className="text-xl sm:text-2xl">{topicEmoji(room.topic)}</span>
-                    <span className="truncate">{room.title}</span>
-                  </h1>
-                  <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                    <Tag>{room.mode}</Tag>
-                    <Tag>{room.kind === "one_on_one" ? "1-on-1" : "Group"}</Tag>
-                    {room.level && <Tag>{room.level}</Tag>}
-                    <span>
-                      · {peopleCount}/{room.capacity} seats
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <span
-                        className={`h-2 w-2 rounded-full inline-block ${connected ? "bg-emerald-500" : "bg-muted-foreground/50"}`}
-                      />
-                      {connected ? "Live" : "Connecting…"}
-                    </span>
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    {isOwner && (
+                      <span className="rounded-full bg-primary/10 text-primary border border-primary/20 px-3 py-1 text-xs font-semibold">
+                        You are host
+                      </span>
+                    )}
+                    {voice.joined ? (
+                      <button
+                        onClick={voice.leave}
+                        className="rounded-full bg-destructive text-destructive-foreground px-3 py-1.5 text-xs font-semibold hover:opacity-90"
+                      >
+                        Leave voice
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => void voice.join()}
+                        disabled={
+                          voice.status === "connecting" ||
+                          !userId ||
+                          showIncognitoSetup ||
+                          showPasswordPrompt
+                        }
+                        title={
+                          !userId
+                            ? "Waiting for your profile…"
+                            : showIncognitoSetup
+                              ? "Finish incognito setup first"
+                              : showPasswordPrompt
+                                ? "Enter the room password first"
+                                : undefined
+                        }
+                        className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-semibold hover:bg-muted disabled:opacity-50"
+                      >
+                        {voice.status === "connecting" ? "Joining…" : "🎙️ Join voice"}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setLeaving(true)}
+                      className="rounded-full bg-destructive/90 px-3 py-1.5 text-xs font-semibold text-destructive-foreground hover:opacity-90"
+                    >
+                      Leave
+                    </button>
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2 shrink-0">
-                  {isOwner && (
-                    <span className="rounded-full bg-primary/10 text-primary border border-primary/20 px-3 py-1 text-xs font-semibold">
-                      You are host
+
+                {/* Voice controls (shown while on the call) */}
+                {voice.joined && (
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <VoiceToggle
+                      on={voice.micOn}
+                      onClick={voice.toggleMic}
+                      onLabel="🎙️ Mic on"
+                      offLabel="🔇 Mic off"
+                    />
+                    <VoiceToggle
+                      on={voice.speakerOn}
+                      onClick={() => {
+                        voice.toggleSpeaker();
+                        if (voice.speakerBlocked) voice.unlockSpeaker();
+                      }}
+                      onLabel="🔊 Speaker on"
+                      offLabel="🔈 Speaker off"
+                    />
+                    {voice.speakerBlocked && voice.speakerOn && (
+                      <button
+                        type="button"
+                        onClick={voice.unlockSpeaker}
+                        className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:text-amber-200"
+                      >
+                        Tap to hear others
+                      </button>
+                    )}
+                    {voice.voiceMasked && (
+                      <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                        🎭 Voice: {voiceFilterLabel(voiceFilter)}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Topic chip (this room's topic) */}
+                {room.topic && (
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground mr-1">
+                      Topic:
                     </span>
-                  )}
-                  {voice.joined ? (
                     <button
-                      onClick={voice.leave}
-                      className="rounded-full bg-destructive text-destructive-foreground px-3 py-1.5 text-xs font-semibold hover:opacity-90"
-                    >
-                      Leave voice
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => void voice.join()}
-                      disabled={
-                        voice.status === "connecting" ||
-                        !userId ||
-                        showIncognitoSetup ||
-                        showPasswordPrompt
+                      onClick={() =>
+                        document
+                          .getElementById("topic-section")
+                          ?.scrollIntoView({ behavior: "smooth", block: "start" })
                       }
-                      title={
-                        !userId
-                          ? "Waiting for your profile…"
-                          : showIncognitoSetup
-                            ? "Finish incognito setup first"
-                            : showPasswordPrompt
-                              ? "Enter the room password first"
-                              : undefined
-                      }
-                      className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-semibold hover:bg-muted disabled:opacity-50"
+                      className="rounded-full px-2.5 py-1 text-xs border bg-primary text-primary-foreground border-primary"
                     >
-                      {voice.status === "connecting" ? "Joining…" : "🎙️ Join voice"}
+                      {topicEmoji(room.topic)} {room.topic}
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setLeaving(true)}
-                    className="rounded-full bg-destructive/90 px-3 py-1.5 text-xs font-semibold text-destructive-foreground hover:opacity-90"
-                  >
-                    Leave
-                  </button>
+                  </div>
+                )}
+
+                {/* Speakers grid */}
+                <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <SpeakerTile
+                    name={displayName}
+                    you
+                    isHost={isOwner}
+                    speaking={voice.joined && voice.selfSpeaking && voice.micOn && !voice.hostMuted}
+                    muted={voice.joined && (!voice.micOn || voice.hostMuted)}
+                  />
+                  {voice.members.map((m) => (
+                    <SpeakerTile
+                      key={m.id}
+                      name={m.name}
+                      speaking={m.speaking}
+                      onCall
+                      canModerate={isOwner}
+                      muted={mutedIds.has(m.id)}
+                      onMute={() => toggleMemberMute(m.id)}
+                      onKick={() => kickMember(m.id)}
+                    />
+                  ))}
+                  {textOnly.map((p) => (
+                    <SpeakerTile
+                      key={p.id}
+                      name={p.name}
+                      canModerate={isOwner}
+                      muted={mutedIds.has(p.id)}
+                      onMute={() => toggleMemberMute(p.id)}
+                      onKick={() => kickMember(p.id)}
+                    />
+                  ))}
+                  {Array.from({ length: emptySeats }).map((_, i) => (
+                    <EmptySeat key={i} />
+                  ))}
                 </div>
               </div>
 
-              {/* Voice controls (shown while on the call) */}
-              {voice.joined && (
-                <div className="mt-4 flex flex-wrap items-center gap-2">
-                  <VoiceToggle
-                    on={voice.micOn}
-                    onClick={voice.toggleMic}
-                    onLabel="🎙️ Mic on"
-                    offLabel="🔇 Mic off"
-                  />
-                  <VoiceToggle
-                    on={voice.speakerOn}
-                    onClick={() => {
-                      voice.toggleSpeaker();
-                      if (voice.speakerBlocked) voice.unlockSpeaker();
-                    }}
-                    onLabel="🔊 Speaker on"
-                    offLabel="🔈 Speaker off"
-                  />
-                  {voice.speakerBlocked && voice.speakerOn && (
-                    <button
-                      type="button"
-                      onClick={voice.unlockSpeaker}
-                      className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:text-amber-200"
-                    >
-                      Tap to hear others
-                    </button>
-                  )}
-                  {voice.voiceMasked && (
-                    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                      🎭 Voice: {voiceFilterLabel(voiceFilter)}
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {/* Topic chip (this room's topic) */}
-              {room.topic && (
-                <div className="mt-4 flex flex-wrap items-center gap-2">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground mr-1">
-                    Topic:
-                  </span>
-                  <button
-                    onClick={() =>
-                      document
-                        .getElementById("topic-section")
-                        ?.scrollIntoView({ behavior: "smooth", block: "start" })
-                    }
-                    className="rounded-full px-2.5 py-1 text-xs border bg-primary text-primary-foreground border-primary"
-                  >
-                    {topicEmoji(room.topic)} {room.topic}
-                  </button>
-                </div>
-              )}
-
-              {/* Speakers grid */}
-              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <SpeakerTile
-                  name={displayName}
-                  you
-                  isHost={isOwner}
-                  speaking={voice.joined && voice.selfSpeaking && voice.micOn && !voice.hostMuted}
-                  muted={voice.joined && (!voice.micOn || voice.hostMuted)}
-                />
-                {voice.members.map((m) => (
-                  <SpeakerTile
-                    key={m.id}
-                    name={m.name}
-                    speaking={m.speaking}
-                    onCall
-                    canModerate={isOwner}
-                    muted={mutedIds.has(m.id)}
-                    onMute={() => toggleMemberMute(m.id)}
-                    onKick={() => kickMember(m.id)}
-                  />
-                ))}
-                {textOnly.map((p) => (
-                  <SpeakerTile
-                    key={p.id}
-                    name={p.name}
-                    canModerate={isOwner}
-                    muted={mutedIds.has(p.id)}
-                    onMute={() => toggleMemberMute(p.id)}
-                    onKick={() => kickMember(p.id)}
-                  />
-                ))}
-                {Array.from({ length: emptySeats }).map((_, i) => (
-                  <EmptySeat key={i} />
-                ))}
+              {/* Second part of the left column. The in-room AI coach moved to
+              the 💡 Ideas panel in the rail, which reads the actual conversation
+              instead of asking the learner to paste it — so the translator is
+              what belongs beside the people, within reach mid-conversation
+              rather than parked below the fold. */}
+              <div id="translate-section" className="flex min-h-0 flex-1 scroll-mt-24">
+                {/* `saveNote` tags the note with the room's topic automatically. */}
+                <TranslateCard onSaveNote={saveNote} className="flex-1" />
               </div>
             </div>
 
@@ -811,16 +829,8 @@ function RoomLive({
           </div>
 
           {/* Topic detail — questions come from the topic's documentation (PRD §8.2) */}
-          <div id="topic-section" className="scroll-mt-24">
+          <div id="topic-section" className="mt-5 scroll-mt-24">
             <TopicDetailCard topic={topic} topicId={topicId} onUse={(t) => setDraft(t)} />
-          </div>
-
-          {/* Translator. The in-room AI coach moved to the 💡 Ideas panel in the
-          rail, which reads the actual conversation instead of asking the
-          learner to paste it. */}
-          <div id="translate-section" className="mt-5 scroll-mt-24">
-            {/* `saveNote` tags the note with the room's topic automatically. */}
-            <TranslateCard onSaveNote={saveNote} />
           </div>
         </>
       )}
@@ -1409,7 +1419,14 @@ function MicButton({
 
 /* ---------- Translate (real /translate) ---------- */
 
-function TranslateCard({ onSaveNote }: { onSaveNote: (note: NoteCreate) => void }) {
+function TranslateCard({
+  onSaveNote,
+  className = "",
+}: {
+  onSaveNote: (note: NoteCreate) => void;
+  /** Lets the room lay this card out as a flexible column beside the chat. */
+  className?: string;
+}) {
   const [from, setFrom] = useState("vi");
   const [to, setTo] = useState("en");
   const [text, setText] = useState("");
@@ -1459,8 +1476,13 @@ function TranslateCard({ onSaveNote }: { onSaveNote: (note: NoteCreate) => void 
   };
 
   return (
-    <div className="rounded-4xl border border-border bg-card p-5 sm:p-6">
-      <div className="flex items-center justify-between">
+    // A flex column so the two text areas absorb whatever height the row has.
+    // `min-h-0` on the growing parts is what stops a long translation from
+    // pushing the Translate button off the bottom of the card.
+    <div
+      className={`flex flex-col rounded-4xl border border-border bg-card p-5 sm:p-6 ${className}`}
+    >
+      <div className="flex flex-none items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="h-8 w-8 rounded-2xl bg-primary/10 inline-flex items-center justify-center">
             🌐
@@ -1480,20 +1502,20 @@ function TranslateCard({ onSaveNote }: { onSaveNote: (note: NoteCreate) => void 
         </button>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        <div>
+      <div className="mt-4 grid min-h-0 flex-1 grid-cols-2 gap-3">
+        <div className="flex min-h-0 flex-col">
           <LangSelect label="From" value={from} onChange={setFrom} />
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={4}
             placeholder="Type a word or sentence…"
-            className="mt-2 w-full rounded-2xl border border-border bg-background p-3 text-sm focus:outline-none focus:border-primary resize-none"
+            className="mt-2 min-h-[112px] w-full flex-1 rounded-2xl border border-border bg-background p-3 text-sm focus:outline-none focus:border-primary resize-none"
           />
         </div>
-        <div>
+        <div className="flex min-h-0 flex-col">
           <LangSelect label="To" value={to} onChange={setTo} />
-          <div className="mt-2 w-full min-h-[112px] rounded-2xl border border-border bg-muted/40 p-3 text-sm whitespace-pre-wrap">
+          <div className="mt-2 min-h-[112px] w-full flex-1 overflow-y-auto rounded-2xl border border-border bg-muted/40 p-3 text-sm whitespace-pre-wrap">
             {err ? (
               <span className="text-destructive">{err}</span>
             ) : (
@@ -1503,7 +1525,7 @@ function TranslateCard({ onSaveNote }: { onSaveNote: (note: NoteCreate) => void 
         </div>
       </div>
 
-      <div className="mt-3 flex items-center justify-end gap-2 flex-wrap">
+      <div className="mt-3 flex flex-none items-center justify-end gap-2 flex-wrap">
         {/* Saving the pair builds the learner's own wordbook (PRD §8.7). */}
         {out && !err && (
           <button
