@@ -4,6 +4,14 @@ import { login, register } from "@/lib/api";
 import { loginWithAuth } from "@/lib/identity";
 
 export const Route = createFileRoute("/login")({
+  // `next` remembers where the visitor was headed, so a shared room link still
+  // lands them in that room after signing in.
+  validateSearch: (search: Record<string, unknown>): { next?: string } => {
+    const next = typeof search.next === "string" ? search.next : undefined;
+    // Only same-site paths: an absolute URL here would be an open redirect,
+    // letting an attacker send people to a lookalike site after login.
+    return next && next.startsWith("/") && !next.startsWith("//") ? { next } : {};
+  },
   head: () => ({
     meta: [
       { title: "Log in — EnglishTalker" },
@@ -21,6 +29,7 @@ type Mode = "login" | "register";
 
 function LoginPage() {
   const navigate = useNavigate();
+  const { next } = Route.useSearch();
   const [mode, setMode] = useState<Mode>("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -38,7 +47,10 @@ function LoginPage() {
           ? await login(username.trim(), password)
           : await register(username.trim(), password);
       loginWithAuth(res);
-      navigate({ to: "/profile" });
+      // Return the visitor to whatever sent them here — a shared room link, a
+      // warm-up they clicked — rather than dumping everyone on /profile.
+      // `validateSearch` has already rejected anything that is not a local path.
+      navigate({ to: next ?? "/profile" });
     } catch (e2) {
       setErr((e2 as Error).message);
     } finally {

@@ -50,7 +50,9 @@ export type RequestOptions = {
 // user and authorize admin-only endpoints. Guests have no token → no header.
 const IDENTITY_STORAGE_KEY = "et_user";
 
-function authToken(): string | null {
+/** The stored session JWT, or null. Exported because WebSocket URLs must carry
+ *  it as a query parameter — a browser cannot set headers on a WS handshake. */
+export function authToken(): string | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(IDENTITY_STORAGE_KEY);

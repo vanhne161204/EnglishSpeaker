@@ -1,21 +1,17 @@
-// Lightweight client identity. The backend has no mandatory auth — a "profile" is
-// just a `user_id` created via `POST /users` (see backend docs/08_API.md). We
-// create one on first need and persist it in localStorage so the same browser
-// keeps the same identity across rooms, joins, and messages.
+// Client-side session state.
 //
-// Username/password login is optional on top of this: registering or logging in
-// binds a username to a persistent profile (so it can be restored), and logging
-// out clears the device identity. Guests keep full function without ever logging in.
+// Identity comes from **logging in**. There is no guest profile: practising
+// (rooms, warm-up, matching) requires an account, because a session produces
+// durable data — transcripts, feedback, band reports — that is worthless without
+// an owner, and every AI call has to be attributable to cap its cost
+// (docs/11_Security.md §11.2).
+//
+// What is stored here is a cache of the profile plus the session JWT. The server
+// never trusts any of it: the token is the only thing that proves who you are,
+// and every id in it is re-derived server-side.
 
 import { useSyncExternalStore } from "react";
-import {
-  createUser,
-  getUser,
-  updateUser,
-  type AuthResult,
-  type ConversationMode,
-  type User,
-} from "@/lib/api";
+import { getMe, updateMe, type AuthResult, type ConversationMode, type User } from "@/lib/api";
 
 const STORAGE_KEY = "et_user";
 
@@ -27,8 +23,9 @@ type StoredUser = Pick<
   "id" | "display_name" | "level" | "interests" | "username" | "is_admin"
 > & {
   mode?: ConversationMode;
-  // Session JWT from register/login. Absent for guests (they have no account).
-  // Sent as the Bearer token by the API client; kept out of API request bodies.
+  // Session JWT from register/login. The API client sends it as a Bearer token,
+  // and WebSocket URLs carry it as a query parameter. It is never put in a
+  // request body — the server derives identity from it, not from what we claim.
   token?: string;
 };
 
@@ -101,45 +98,35 @@ export function useIdentity(): StoredUser | null {
 }
 
 /**
- * Return the existing profile, or create one. Verifies a stored id still exists
- * on the backend (the dev DB may have been reset) and re-creates it if not.
+ * The signed-in profile, refreshed from the server, or `null`.
+ *
+ * Previously this CREATED an anonymous account when none existed. It no longer
+ * can: accounts come from `POST /auth/register`, which requires a password. A
+ * caller that gets `null` should send the visitor to `/login`.
  */
-export async function ensureUser(defaults?: {
-  display_name?: string;
-  level?: string;
-  interests?: string;
-}): Promise<StoredUser> {
+export async function ensureUser(): Promise<StoredUser | null> {
   const stored = readStored();
-  if (stored) {
-    try {
-      await getUser(stored.id);
-      return stored;
-    } catch {
-      // Stored id is stale (e.g. DB reset) — fall through and create a new one.
-    }
+  if (!stored?.token) return null;
+  try {
+    // Confirms the token is still valid and picks up any server-side change
+    // (a plan upgrade, admin being granted or revoked).
+    const fresh = await getMe();
+    const next: StoredUser = { ...stored, ...fresh };
+    writeStored(next);
+    return next;
+  } catch {
+    // Expired, revoked, or the account is gone. Treat it as signed out rather
+    // than leaving a stale identity that will fail on every request.
+    logout();
+    return null;
   }
-
-  const created = await createUser({
-    display_name: defaults?.display_name ?? randomGuestName(),
-    level: defaults?.level ?? null,
-    interests: defaults?.interests ?? null,
-  });
-  const next: StoredUser = {
-    id: created.id,
-    display_name: created.display_name,
-    username: created.username,
-    is_admin: created.is_admin,
-    level: created.level,
-    interests: created.interests,
-    mode: stored?.mode,
-  };
-  writeStored(next);
-  return next;
 }
 
 /**
- * Save the user's profile. Creates the backend profile on first run, otherwise
- * PATCHes it. `mode` is stored locally only. Returns the updated stored profile.
+ * Save the signed-in user's profile. `mode` is stored locally only.
+ *
+ * Throws when nobody is signed in — there is no profile to update, and silently
+ * creating one is exactly the guest path this change removed.
  */
 export async function saveProfile(input: {
   display_name: string;
@@ -148,7 +135,8 @@ export async function saveProfile(input: {
   mode?: ConversationMode;
 }): Promise<StoredUser> {
   const existing = await ensureUser();
-  const updated = await updateUser(existing.id, {
+  if (!existing) throw new Error("Sign in to save your profile.");
+  const updated = await updateMe({
     display_name: input.display_name,
     level: input.level ?? null,
     interests: input.interests ?? null,
@@ -185,7 +173,10 @@ export function loginWithAuth(result: AuthResult): StoredUser {
   return next;
 }
 
-/** Clear the device identity. The next action creates a fresh guest profile. */
+/** Sign out. Clears the cached profile and token from this browser.
+ *
+ *  NOTE: the token stays valid on the server until it expires — the session is
+ *  stateless, so there is nothing to revoke (docs/11_Security.md §11.6). */
 export function logout(): void {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(STORAGE_KEY);

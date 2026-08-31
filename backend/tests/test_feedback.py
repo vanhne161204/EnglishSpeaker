@@ -295,7 +295,11 @@ async def test_assessing_a_session_with_no_speech_says_so(client: AsyncClient) -
         )
     ).json()
     room = (
-        await client.post("/api/v1/rooms", json={"title": "Quiet", "mode": "normal"})
+        await client.post(
+            "/api/v1/rooms",
+            json={"title": "Quiet", "mode": "normal"},
+            headers={"Authorization": f"Bearer {auth['token']}"},
+        )
     ).json()
 
     resp = await client.post(

@@ -30,6 +30,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
+from app.api.deps import authenticate_socket
 from app.db.session import AsyncSessionLocal
 from app.realtime.connection_manager import manager
 from app.repositories.message import MessageRepository
@@ -56,15 +57,23 @@ _HISTORY_LIMIT = 50
 async def room_socket(
     websocket: WebSocket,
     room_id: str,
-    user_id: str = Query(...),
-    name: str = Query(default="Guest"),
+    token: str = Query(..., description="Session JWT — identity comes from this, only this."),
 ) -> None:
     try:
         room_uuid = uuid.UUID(room_id)
-        user_uuid = uuid.UUID(user_id)
     except ValueError:
-        await websocket.close(code=1008)  # policy violation: bad identifiers
+        await websocket.close(code=1008)  # policy violation: bad room id
         return
+
+    # Identity is derived from the token. It used to be a `user_id` query
+    # parameter, which let anyone connect as anyone and post chat and transcript
+    # lines under their name (docs/11_Security.md §11.4).
+    identity = await authenticate_socket(token)
+    if identity is None:
+        await websocket.close(code=1008)
+        return
+    user_uuid, name = identity
+    user_id = str(user_uuid)
 
     # A kicked member cannot reconnect to the room's chat (PRD §8.3).
     if moderation.is_banned(room_id, user_id):

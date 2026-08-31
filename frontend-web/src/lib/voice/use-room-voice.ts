@@ -529,7 +529,7 @@ export function useRoomVoice(
     }
     outboundStreamRef.current = outbound;
 
-    const ws = new WebSocket(voiceSocketUrl(roomId, userId, displayName));
+    const ws = new WebSocket(voiceSocketUrl(roomId, displayName));
     wsRef.current = ws;
     ws.onopen = () => setStatus("connected");
     ws.onerror = () => {

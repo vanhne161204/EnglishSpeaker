@@ -186,19 +186,32 @@ function LoadingGrid() {
   );
 }
 
-export function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+export function ErrorState({
+  message,
+  onRetry,
+  /** Small print under the message. Defaults to the dev hint, which is right for
+   *  a failed fetch and wrong for a business rule — pass "" to drop it, or your
+   *  own text. Showing "check VITE_API_BASE_URL" to a learner who was removed
+   *  from a room is noise at best and alarming at worst. */
+  hint = "Is the backend running? Check VITE_API_BASE_URL.",
+  /** The action's label. "Retry" is wrong when retrying cannot succeed. */
+  retryLabel = "Retry",
+}: {
+  message: string;
+  onRetry: () => void;
+  hint?: string;
+  retryLabel?: string;
+}) {
   return (
     <div className="rounded-3xl border border-dashed border-destructive/40 bg-destructive/5 p-8 text-center">
       <div className="text-3xl">⚠️</div>
       <p className="mt-2 text-sm text-foreground">{message}</p>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Is the backend running? Check VITE_API_BASE_URL.
-      </p>
+      {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
       <button
         onClick={onRetry}
         className="mt-4 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
       >
-        Retry
+        {retryLabel}
       </button>
     </div>
   );

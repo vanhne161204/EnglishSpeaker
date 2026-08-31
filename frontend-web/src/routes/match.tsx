@@ -1,3 +1,4 @@
+import { requireAuth } from "@/lib/require-auth";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -6,6 +7,9 @@ import { currentUser } from "@/lib/identity";
 import { INTERESTS, levelLabel, modeLabel, parseInterests, sizeLabel } from "@/lib/presentation";
 
 export const Route = createFileRoute("/match")({
+  // Requires an account (docs/11_Security.md §11.2). The API enforces this
+  // too; the guard just avoids rendering a page that would 401 on every call.
+  beforeLoad: ({ location }) => requireAuth(location.pathname),
   head: () => ({
     meta: [
       { title: "1-on-1 Match — EnglishTalker" },

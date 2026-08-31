@@ -7,7 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class MessageCreate(BaseModel):
-    user_id: uuid.UUID
+    # No `user_id`: the sender is the authenticated caller. Accepting one let a
+    # caller post messages as somebody else (docs/11_Security.md §11.4).
     text: str = Field(min_length=1, max_length=2000)
 
 

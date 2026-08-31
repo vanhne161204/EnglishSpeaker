@@ -1,3 +1,4 @@
+import { requireAuth } from "@/lib/require-auth";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -14,6 +15,9 @@ import { levelLabel, modeLabel, sizeLabel, topicEmoji } from "@/lib/presentation
 import { ErrorState } from "./topics.index";
 
 export const Route = createFileRoute("/rooms/")({
+  // Requires an account (docs/11_Security.md §11.2). The API enforces this
+  // too; the guard just avoids rendering a page that would 401 on every call.
+  beforeLoad: ({ location }) => requireAuth(location.pathname),
   head: () => ({
     meta: [
       { title: "Speaking Rooms — EnglishTalker" },
@@ -310,8 +314,9 @@ function CreateRoomModal({ topicTitles, onClose }: { topicTitles: string[]; onCl
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
-    // The creator becomes the room owner/host who can moderate it (PRD §8.3).
-    const user = await ensureUser();
+    // The creator becomes the owner/host who can moderate it (PRD §8.3). The
+    // server takes that from the session token — sending `owner_id` here would
+    // be ignored, and used to be a way to create a room owned by someone else.
     createM.mutate({
       title: title.trim(),
       mode,
@@ -319,7 +324,6 @@ function CreateRoomModal({ topicTitles, onClose }: { topicTitles: string[]; onCl
       topic: topic || null,
       level,
       capacity: roomKind === "one_on_one" ? 2 : capacity,
-      owner_id: user.id,
       password: password.trim() || null,
     });
   };

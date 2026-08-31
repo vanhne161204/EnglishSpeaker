@@ -4,7 +4,7 @@
 //
 // See backend docs/08_API.md for the full contract.
 
-import { API_BASE_URL, apiRequest, WS_BASE_URL } from "./client";
+import { API_BASE_URL, apiRequest, authToken, WS_BASE_URL } from "./client";
 import type {
   AnswerTemplate,
   AnswerTemplateCreate,
@@ -152,18 +152,12 @@ export const deleteAnswerTemplate = (id: string) =>
   apiRequest<void>(`/questions/answers/${id}`, { method: "DELETE" });
 
 // ----- Users (lightweight profiles) -----
-export const createUser = (body: UserCreate) =>
-  apiRequest<User>("/users", { method: "POST", body });
-export const getUser = (id: string) => apiRequest<User>(`/users/${id}`);
-export const updateUser = (id: string, body: UserUpdate) =>
-  apiRequest<User>(`/users/${id}`, { method: "PATCH", body });
-export const getSubscription = (userId: string) =>
-  apiRequest<Subscription>(`/users/${userId}/subscription`);
-export const setSubscription = (userId: string, plan: PlanTier) =>
-  apiRequest<Subscription>(`/users/${userId}/subscription`, {
-    method: "PUT",
-    body: { plan },
-  });
+export const getMe = () => apiRequest<User>("/users/me");
+export const updateMe = (body: UserUpdate) =>
+  apiRequest<User>("/users/me", { method: "PATCH", body });
+export const getMySubscription = () => apiRequest<Subscription>("/users/me/subscription");
+export const setMySubscription = (plan: PlanTier) =>
+  apiRequest<Subscription>("/users/me/subscription", { method: "PUT", body: { plan } });
 
 // ----- Rooms -----
 export const listRooms = (filters?: { mode?: ConversationMode; kind?: RoomKind }) =>
@@ -172,17 +166,15 @@ export const getRoom = (id: string) => apiRequest<Room>(`/rooms/${id}`);
 export const createRoom = (body: RoomCreate) =>
   apiRequest<Room>("/rooms", { method: "POST", body });
 
-export const joinRoom = (
-  roomId: string,
-  body: { user_id: string; display_name?: string; password?: string },
-) => apiRequest<Room>(`/rooms/${roomId}/join`, { method: "POST", body });
-export const leaveRoom = (roomId: string, body: { user_id: string }) =>
-  apiRequest<Room>(`/rooms/${roomId}/leave`, { method: "POST", body });
+export const joinRoom = (roomId: string, body: { display_name?: string; password?: string } = {}) =>
+  apiRequest<Room>(`/rooms/${roomId}/join`, { method: "POST", body });
+export const leaveRoom = (roomId: string) =>
+  apiRequest<Room>(`/rooms/${roomId}/leave`, { method: "POST" });
 
 /** Owner-only: mute, unmute, or kick a member (PRD §8.3). */
 export const moderateRoom = (
   roomId: string,
-  body: { owner_id: string; target_user_id: string; action: ModerationAction },
+  body: { target_user_id: string; action: ModerationAction },
 ) => apiRequest<ModerateResult>(`/rooms/${roomId}/moderate`, { method: "POST", body });
 
 export const listMessages = (roomId: string) => apiRequest<Message[]>(`/rooms/${roomId}/messages`);
@@ -220,12 +212,13 @@ export const updateNote = (id: string, body: NoteUpdate) =>
 export const deleteNote = (id: string) => apiRequest<void>(`/notes/${id}`, { method: "DELETE" });
 
 /** Build the live-chat WebSocket URL for a room (`POST /rooms/{id}/join` first). */
-export const roomSocketUrl = (roomId: string, userId: string, name: string) =>
-  `${WS_BASE_URL}/ws/rooms/${roomId}?user_id=${encodeURIComponent(userId)}&name=${encodeURIComponent(name)}`;
+export const roomSocketUrl = (roomId: string) =>
+  `${WS_BASE_URL}/ws/rooms/${roomId}?token=${encodeURIComponent(authToken() ?? "")}`;
 
 /** Build the WebRTC voice-signaling WebSocket URL for a room (PRD §8.3 voice calls). */
-export const voiceSocketUrl = (roomId: string, userId: string, name: string) =>
-  `${WS_BASE_URL}/ws/voice/${roomId}?user_id=${encodeURIComponent(userId)}&name=${encodeURIComponent(name)}`;
+export const voiceSocketUrl = (roomId: string, alias?: string) =>
+  `${WS_BASE_URL}/ws/voice/${roomId}?token=${encodeURIComponent(authToken() ?? "")}` +
+  (alias ? `&name=${encodeURIComponent(alias)}` : "");
 
 /** Transcribe recorded audio (multipart). Powered by faster-whisper, else a stub. */
 // ----- Coach Report layer 1 (docs/10_AI_Design.md §10.3) -----

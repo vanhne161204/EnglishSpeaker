@@ -1,46 +1,50 @@
-import uuid
+"""Plan endpoints, scoped to the caller.
+
+These used to take a `user_id` from the path, so anyone could grant themselves
+premium — or downgrade somebody else (docs/11_Security.md §11.4).
+"""
 
 from httpx import AsyncClient
 
 
-async def _make_user(client: AsyncClient) -> str:
-    resp = await client.post("/api/v1/users", json={"display_name": "Alice"})
-    return resp.json()["id"]
+async def test_subscription_requires_authentication(client: AsyncClient) -> None:
+    assert (await client.get("/api/v1/users/me/subscription")).status_code == 401
+    assert (
+        await client.put("/api/v1/users/me/subscription", json={"plan": "premium"})
+    ).status_code == 401
 
 
-async def test_new_user_is_on_free_plan(client: AsyncClient) -> None:
-    user_id = await _make_user(client)
-    created = await client.post("/api/v1/users", json={"display_name": "Bob"})
-    assert created.json()["plan"] == "free"
-
-    sub = await client.get(f"/api/v1/users/{user_id}/subscription")
-    assert sub.status_code == 200
-    body = sub.json()
+async def test_a_new_account_is_on_the_free_plan(user_client: AsyncClient) -> None:
+    resp = await user_client.get("/api/v1/users/me/subscription")
+    assert resp.status_code == 200
+    body = resp.json()
     assert body["plan"] == "free"
     assert body["limits"]["ai_suggestions_per_day"] == 10
 
 
-async def test_upgrade_and_cancel_plan(client: AsyncClient) -> None:
-    user_id = await _make_user(client)
-
-    upgraded = await client.put(f"/api/v1/users/{user_id}/subscription", json={"plan": "premium"})
+async def test_upgrade_and_cancel(user_client: AsyncClient) -> None:
+    upgraded = await user_client.put(
+        "/api/v1/users/me/subscription", json={"plan": "premium"}
+    )
     assert upgraded.status_code == 200
     assert upgraded.json()["plan"] == "premium"
     assert upgraded.json()["limits"]["ai_suggestions_per_day"] is None  # unlimited
 
     # The change persists on the profile.
-    assert (await client.get(f"/api/v1/users/{user_id}")).json()["plan"] == "premium"
+    assert (await user_client.get("/api/v1/users/me")).json()["plan"] == "premium"
 
-    cancelled = await client.put(f"/api/v1/users/{user_id}/subscription", json={"plan": "free"})
+    cancelled = await user_client.put("/api/v1/users/me/subscription", json={"plan": "free"})
     assert cancelled.json()["plan"] == "free"
 
 
-async def test_subscription_validates_plan(client: AsyncClient) -> None:
-    user_id = await _make_user(client)
-    bad = await client.put(f"/api/v1/users/{user_id}/subscription", json={"plan": "gold"})
+async def test_plan_is_validated(user_client: AsyncClient) -> None:
+    bad = await user_client.put("/api/v1/users/me/subscription", json={"plan": "gold"})
     assert bad.status_code == 422
 
 
-async def test_subscription_unknown_user_404(client: AsyncClient) -> None:
-    resp = await client.get(f"/api/v1/users/{uuid.uuid4()}/subscription")
-    assert resp.status_code == 404
+async def test_upgrading_cannot_touch_another_account(
+    user_client: AsyncClient, other_client: AsyncClient
+) -> None:
+    """The regression that mattered: no route accepts a target user id."""
+    await user_client.put("/api/v1/users/me/subscription", json={"plan": "premium"})
+    assert (await other_client.get("/api/v1/users/me/subscription")).json()["plan"] == "free"

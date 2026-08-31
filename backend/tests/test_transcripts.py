@@ -50,13 +50,18 @@ def _clear_speaker_throttle():
 
 async def _room_and_speaker(client: AsyncClient) -> tuple[uuid.UUID, uuid.UUID, str, str]:
     """Create a room and a registered speaker. Returns (room, user, name, token)."""
-    room = (
-        await client.post("/api/v1/rooms", json={"title": "Speaking", "mode": "normal"})
-    ).json()
     auth = (
         await client.post(
             "/api/v1/auth/register",
             json={"username": f"sp{uuid.uuid4().hex[:8]}", "password": "pw12345678"},
+        )
+    ).json()
+    # Creating a room requires an account; the creator becomes its owner.
+    room = (
+        await client.post(
+            "/api/v1/rooms",
+            json={"title": "Speaking", "mode": "normal"},
+            headers={"Authorization": f"Bearer {auth['token']}"},
         )
     ).json()
     return (

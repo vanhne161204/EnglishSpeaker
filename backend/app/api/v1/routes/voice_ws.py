@@ -17,6 +17,7 @@ import uuid
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
+from app.api.deps import authenticate_socket
 from app.realtime.voice_manager import voice_manager
 
 logger = logging.getLogger(__name__)
@@ -31,15 +32,24 @@ _RELAY_TYPES = {"offer", "answer", "ice-candidate"}
 async def voice_socket(
     websocket: WebSocket,
     room_id: str,
-    user_id: str = Query(...),
-    name: str = Query(default="Guest"),
+    token: str = Query(..., description="Session JWT — identity comes from this, only this."),
+    name: str = Query(default=""),
 ) -> None:
     try:
         uuid.UUID(room_id)
-        uuid.UUID(user_id)
     except ValueError:
-        await websocket.close(code=1008)  # policy violation: bad identifiers
+        await websocket.close(code=1008)  # policy violation: bad room id
         return
+
+    identity = await authenticate_socket(token)
+    if identity is None:
+        await websocket.close(code=1008)
+        return
+    user_uuid, profile_name = identity
+    user_id = str(user_uuid)
+    # An incognito room supplies an alias; it is a display label only and can
+    # never change who the server thinks you are.
+    name = name.strip()[:80] or profile_name
 
     await websocket.accept()
 

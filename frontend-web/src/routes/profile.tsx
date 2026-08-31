@@ -1,3 +1,4 @@
+import { requireAuth } from "@/lib/require-auth";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import type { ConversationMode } from "@/lib/api";
@@ -5,6 +6,9 @@ import { currentUser, logout, randomGuestName, saveProfile } from "@/lib/identit
 import { INTERESTS, LEVELS, levelLabel, modeLabel, parseInterests } from "@/lib/presentation";
 
 export const Route = createFileRoute("/profile")({
+  // Requires an account (docs/11_Security.md §11.2). The API enforces this
+  // too; the guard just avoids rendering a page that would 401 on every call.
+  beforeLoad: ({ location }) => requireAuth(location.pathname),
   head: () => ({
     meta: [
       { title: "Your profile — EnglishTalker" },

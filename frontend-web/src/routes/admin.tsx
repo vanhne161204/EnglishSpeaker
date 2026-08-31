@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/require-auth";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -39,6 +40,9 @@ import { levelLabel, LEVELS } from "@/lib/presentation";
 import { ErrorState } from "./topics.index";
 
 export const Route = createFileRoute("/admin")({
+  // Requires an account (docs/11_Security.md §11.2). The API enforces this
+  // too; the guard just avoids rendering a page that would 401 on every call.
+  beforeLoad: ({ location }) => requireAdmin(location.pathname),
   head: () => ({
     meta: [
       { title: "Admin — EnglishTalker" },

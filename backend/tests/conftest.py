@@ -62,3 +62,38 @@ async def admin_client(client: AsyncClient) -> AsyncGenerator[AsyncClient, None]
     assert resp.status_code == 200, resp.text
     client.headers["Authorization"] = f"Bearer {resp.json()['token']}"
     yield client
+
+
+@pytest_asyncio.fixture
+async def user_client(client: AsyncClient) -> AsyncGenerator[AsyncClient, None]:
+    """``client`` authenticated as an ordinary (non-admin) learner.
+
+    Rooms, notes, transcripts and reports all require an account now
+    (docs/11_Security.md §11.2), so most tests need this rather than ``client``.
+    Use bare ``client`` only to assert that something is *rejected* without auth.
+    """
+    resp = await client.post(
+        "/api/v1/auth/register",
+        json={"username": "learner", "password": "pw12345678", "display_name": "Learner"},
+    )
+    assert resp.status_code == 200, resp.text
+    client.headers["Authorization"] = f"Bearer {resp.json()['token']}"
+    yield client
+
+
+@pytest_asyncio.fixture
+async def other_client() -> AsyncGenerator[AsyncClient, None]:
+    """A SECOND authenticated learner, on their own HTTP client.
+
+    Needed to prove isolation: that one learner cannot read, edit or delete
+    another's notes, transcripts or reports.
+    """
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.post(
+            "/api/v1/auth/register",
+            json={"username": "other", "password": "pw12345678", "display_name": "Other"},
+        )
+        assert resp.status_code == 200, resp.text
+        ac.headers["Authorization"] = f"Bearer {resp.json()['token']}"
+        yield ac

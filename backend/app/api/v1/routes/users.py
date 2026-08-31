@@ -1,69 +1,63 @@
-"""User (lightweight profile) endpoints."""
+"""Profile and subscription endpoints.
 
-import uuid
+Every route acts on the **authenticated caller**, never on an id from the URL.
+Taking the id from the path meant anyone could edit anyone's profile — and, via
+the subscription route, grant themselves premium or downgrade somebody else
+(docs/11_Security.md §11.4).
 
-from fastapi import APIRouter, Depends, status
+There is no `POST /users`. Accounts are created by `POST /auth/register`, which
+requires a password; a second, password-free creation path would be a way in.
+"""
 
-from app.api.deps import get_subscription_service, get_user_service
+from fastapi import APIRouter, Depends
+
+from app.api.deps import get_current_user, get_subscription_service, get_user_service
 from app.models.user import User
 from app.schemas.subscription import SubscriptionRead, SubscriptionUpdate
-from app.schemas.user import UserCreate, UserRead, UserUpdate
+from app.schemas.user import UserRead, UserUpdate
 from app.services.subscription import SubscriptionService
 from app.services.user import UserService
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-@router.post(
-    "",
-    response_model=UserRead,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create a lightweight profile",
-)
-async def create_user(
-    payload: UserCreate,
-    service: UserService = Depends(get_user_service),
-) -> User:
-    return await service.create_user(payload)
+@router.get("/me", response_model=UserRead, summary="My profile")
+async def get_me(user: User = Depends(get_current_user)) -> User:
+    return user
 
 
-@router.get("/{user_id}", response_model=UserRead, summary="Get a profile")
-async def get_user(
-    user_id: uuid.UUID,
-    service: UserService = Depends(get_user_service),
-) -> User:
-    return await service.get_user(user_id)
-
-
-@router.patch("/{user_id}", response_model=UserRead, summary="Update a profile")
-async def update_user(
-    user_id: uuid.UUID,
+@router.patch("/me", response_model=UserRead, summary="Update my profile")
+async def update_me(
     payload: UserUpdate,
+    user: User = Depends(get_current_user),
     service: UserService = Depends(get_user_service),
 ) -> User:
-    return await service.update_user(user_id, payload)
+    return await service.update_user(user.id, payload)
 
 
 @router.get(
-    "/{user_id}/subscription",
+    "/me/subscription",
     response_model=SubscriptionRead,
-    summary="Get the user's plan and limits",
+    summary="My plan and limits",
 )
-async def get_subscription(
-    user_id: uuid.UUID,
+async def get_my_subscription(
+    user: User = Depends(get_current_user),
     service: SubscriptionService = Depends(get_subscription_service),
 ) -> SubscriptionRead:
-    return await service.get_subscription(user_id)
+    return await service.get_subscription(user.id)
 
 
 @router.put(
-    "/{user_id}/subscription",
+    "/me/subscription",
     response_model=SubscriptionRead,
-    summary="Upgrade or cancel the user's plan",
+    summary="Change my plan",
 )
-async def set_subscription(
-    user_id: uuid.UUID,
+async def set_my_subscription(
     payload: SubscriptionUpdate,
+    user: User = Depends(get_current_user),
     service: SubscriptionService = Depends(get_subscription_service),
 ) -> SubscriptionRead:
-    return await service.set_plan(user_id, payload.plan)
+    # TODO(payments): this currently trusts the caller to choose their own plan,
+    # which is fine only while nothing is charged for. Once billing exists, the
+    # plan must be set by the payment webhook, never by the client.
+    return await service.set_plan(user.id, payload.plan)

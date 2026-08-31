@@ -1,10 +1,13 @@
 """SentenceNote model — useful sentences a user saves (PRD §8.7).
 
-Note: no ``user_id`` yet — that arrives with the auth slice. For the first demo
-notes are global.
+Scoped to one learner by ``user_id``. Before that column existed every note was
+global — everyone could read and delete everyone else's saved sentences
+(docs/11_Security.md §11.4).
 """
 
-from sqlalchemy import String, Text
+import uuid
+
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -26,6 +29,10 @@ class SentenceNote(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """
 
     __tablename__ = "sentence_notes"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
 
     original_text: Mapped[str | None] = mapped_column(Text, default=None)
     improved_text: Mapped[str | None] = mapped_column(Text, default=None)

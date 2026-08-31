@@ -9,7 +9,7 @@ from app.ai.factory import build_llm, build_transcriber, build_translator
 from app.ai.routing import AiTask
 from app.core.exceptions import AppError
 from app.core.security import decode_access_token
-from app.db.session import get_session
+from app.db.session import AsyncSessionLocal, get_session
 from app.models.enums import PlanTier
 from app.models.user import User
 from app.repositories.category import CategoryRepository
@@ -189,3 +189,36 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
     if not user.is_admin:
         raise NotAdminError("Admins only.")
     return user
+
+
+# --- WebSocket authentication ---------------------------------------------
+
+
+async def authenticate_socket(token: str | None) -> tuple[uuid.UUID, str] | None:
+    """Resolve a WebSocket's session token to ``(user_id, display_name)``.
+
+    Returns ``None`` when the token is missing, invalid, expired, or names a user
+    who no longer exists — the caller then closes with 1008.
+
+    The token arrives as a **query parameter** because a browser cannot set
+    headers on a WebSocket handshake. That means it can land in server access
+    logs, so keep the expiry short-ish and never log the raw query string.
+
+    Identity comes from the token's ``sub`` claim, never from a `user_id`
+    parameter. Accepting a claimed id let anyone connect as anyone and post chat
+    and transcript lines under their name (docs/11_Security.md §11.4).
+    """
+    if not token:
+        return None
+    claims = decode_access_token(token)
+    if claims is None or "sub" not in claims:
+        return None
+    try:
+        user_id = uuid.UUID(str(claims["sub"]))
+    except ValueError:
+        return None
+    async with AsyncSessionLocal() as session:
+        user = await UserRepository(session).get(user_id)
+    if user is None:
+        return None
+    return user.id, user.display_name

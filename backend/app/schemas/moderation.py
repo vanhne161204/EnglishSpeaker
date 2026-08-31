@@ -17,9 +17,10 @@ class ModerationAction(StrEnum):
 class ModerateRequest(BaseModel):
     """An owner-issued moderation command against one member of a room."""
 
-    # The caller, who must be the room's owner. This is the lightweight-identity
-    # user id (there is no auth token in this version).
-    owner_id: uuid.UUID
+    # NOTE: there is deliberately no `owner_id`. The caller is taken from the
+    # session token — a body-supplied owner id let ANY caller kick ANY member of
+    # ANY room, because the check compared a database value against a number the
+    # attacker chose (docs/11_Security.md §11.4).
     target_user_id: uuid.UUID
     action: ModerationAction
 

@@ -5,14 +5,15 @@ from collections.abc import Sequence
 
 from fastapi import APIRouter, Depends, status
 
-from app.api.deps import get_conversation_service, get_room_service
+from app.api.deps import get_conversation_service, get_current_user, get_room_service
 from app.models.enums import ConversationMode, RoomKind
 from app.models.message import Message
 from app.models.room import Room
+from app.models.user import User
 from app.realtime.connection_manager import manager
 from app.schemas.message import MessageCreate, MessageRead
 from app.schemas.moderation import ModerateRequest, ModerateResult
-from app.schemas.participant import JoinRequest, LeaveRequest
+from app.schemas.participant import JoinRequest
 from app.schemas.room import RoomCreate, RoomRead
 from app.services.conversation import ConversationService
 from app.services.room import RoomService
@@ -37,8 +38,12 @@ async def list_rooms(
 )
 async def create_room(
     payload: RoomCreate,
+    user: User = Depends(get_current_user),
     service: RoomService = Depends(get_room_service),
 ) -> Room:
+    # The creator owns the room. Taking `owner_id` from the body would let a
+    # caller create a room owned by somebody else, then moderate it as them.
+    payload = payload.model_copy(update={"owner_id": user.id})
     return await service.create_room(payload)
 
 
@@ -54,20 +59,19 @@ async def get_room(
 async def join_room(
     room_id: uuid.UUID,
     payload: JoinRequest,
+    user: User = Depends(get_current_user),
     service: RoomService = Depends(get_room_service),
 ) -> Room:
-    return await service.join_room(
-        room_id, payload.user_id, payload.display_name, payload.password
-    )
+    return await service.join_room(room_id, user.id, payload.display_name, payload.password)
 
 
 @router.post("/{room_id}/leave", response_model=RoomRead, summary="Leave a room")
 async def leave_room(
     room_id: uuid.UUID,
-    payload: LeaveRequest,
+    user: User = Depends(get_current_user),
     service: RoomService = Depends(get_room_service),
 ) -> Room:
-    return await service.leave_room(room_id, payload.user_id)
+    return await service.leave_room(room_id, user.id)
 
 
 @router.post(
@@ -78,10 +82,12 @@ async def leave_room(
 async def moderate_member(
     room_id: uuid.UUID,
     payload: ModerateRequest,
+    user: User = Depends(get_current_user),
     service: RoomService = Depends(get_room_service),
 ) -> ModerateResult:
-    # Verifies ownership and applies any DB effect (kick removes + bans the member).
-    await service.moderate(room_id, payload.owner_id, payload.target_user_id, payload.action)
+    # Ownership is checked against the TOKEN, never a body field. The service
+    # raises 403 when the caller does not own this room.
+    await service.moderate(room_id, user.id, payload.target_user_id, payload.action)
     # Deliver the command to the room over the live chat channel; each client acts
     # on it if it is the target (leave on kick, mute/unmute its own mic).
     await manager.broadcast(
@@ -116,6 +122,7 @@ async def list_messages(
 async def create_message(
     room_id: uuid.UUID,
     payload: MessageCreate,
+    user: User = Depends(get_current_user),
     service: ConversationService = Depends(get_conversation_service),
 ) -> Message:
-    return await service.post_message(room_id, payload.user_id, payload.text)
+    return await service.post_message(room_id, user.id, payload.text)
