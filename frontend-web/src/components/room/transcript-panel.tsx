@@ -32,6 +32,8 @@ export interface TranscriptPanelProps {
   listening: boolean;
   error: string | null;
   onToggle: () => void;
+  /** Lets the room stretch this panel to share the column's spare height. */
+  className?: string;
 }
 
 export function TranscriptPanel({
@@ -40,6 +42,7 @@ export function TranscriptPanel({
   listening,
   error,
   onToggle,
+  className = "",
 }: TranscriptPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -53,7 +56,7 @@ export function TranscriptPanel({
   }, [lines]);
 
   return (
-    <div className="flex flex-col rounded-4xl border border-border bg-card">
+    <div className={`flex flex-col rounded-4xl border border-border bg-card ${className}`}>
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold">📝 Live script</span>
@@ -89,7 +92,10 @@ export function TranscriptPanel({
         )}
       </div>
 
-      <div ref={scrollRef} className="max-h-[240px] flex-1 space-y-3 overflow-y-auto p-4">
+      <div
+        ref={scrollRef}
+        className="max-h-[240px] flex-1 space-y-3 overflow-y-auto p-4 lg:max-h-none lg:min-h-0"
+      >
         {error && <p className="text-sm text-destructive">{error}</p>}
 
         {lines.length === 0 && !error && (

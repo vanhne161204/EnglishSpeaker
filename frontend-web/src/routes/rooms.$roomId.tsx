@@ -558,16 +558,24 @@ function RoomLive({
             </div>
           )}
 
-          <div className="grid lg:grid-cols-12 gap-5">
+          {/* On a wide screen the room is a cockpit: the row is pinned to the
+          viewport and every panel scrolls inside itself, so the two columns are
+          always exactly the same height. Letting the row grow with content is
+          what produced the blank half-card — a tall seat grid stretched the chat
+          card while its message list stayed capped, and the difference showed up
+          as dead space. Below `lg` the columns stack and everything is auto
+          height again, where a cap is the right answer. */}
+          <div className="grid gap-5 lg:h-[calc(100vh-11rem)] lg:min-h-[560px] lg:grid-cols-12">
             {/* Left column, in two stacked parts: who is in the room on top, the
-            translator below it. The seat grid is short and fixed — four tiles —
-            while the right column runs the full height of the script and the
-            chat, so the left half used to end in a large empty panel. The
-            translator now fills it, and `flex-1` on the lower part makes the two
-            columns finish level however tall the right one grows. */}
-            <div className="flex flex-col gap-5 lg:col-span-8">
-              {/* People stage with merged room info */}
-              <div className="rounded-4xl border border-border bg-gradient-to-br from-cream to-card p-5 sm:p-7">
+            translator filling whatever is left below it. In a small room the
+            seat grid is short and the translator is large; in a crowded one the
+            seats take the space and the translator falls back to its 300px
+            floor, scrolling the column rather than squashing either. */}
+            <div className="flex flex-col gap-5 lg:col-span-8 lg:min-h-0 lg:overflow-y-auto">
+              {/* People stage with merged room info. `shrink-0` because seats are
+              the point of the room — a full room shrinks the translator, never
+              the people. */}
+              <div className="shrink-0 rounded-4xl border border-border bg-gradient-to-br from-cream to-card p-5 sm:p-7">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -734,7 +742,10 @@ function RoomLive({
               instead of asking the learner to paste it — so the translator is
               what belongs beside the people, within reach mid-conversation
               rather than parked below the fold. */}
-              <div id="translate-section" className="flex min-h-0 flex-1 scroll-mt-24">
+              <div
+                id="translate-section"
+                className="flex min-h-0 flex-1 scroll-mt-24 lg:min-h-[300px]"
+              >
                 {/* `saveNote` tags the note with the room's topic automatically. */}
                 <TranslateCard onSaveNote={saveNote} className="flex-1" />
               </div>
@@ -743,8 +754,12 @@ function RoomLive({
             {/* Right column: what was SAID above what was TYPED. Speech is the
             primary activity in a room, so it gets the top slot; chat is the
             fallback channel and sits under it. */}
-            <div id="transcript-section" className="flex scroll-mt-24 flex-col gap-5 lg:col-span-4">
+            <div
+              id="transcript-section"
+              className="flex scroll-mt-24 flex-col gap-5 lg:col-span-4 lg:min-h-0"
+            >
               <TranscriptPanel
+                className="lg:min-h-0 lg:flex-1"
                 lines={transcriptLines}
                 supported={live.supported}
                 listening={live.listening}
@@ -752,14 +767,17 @@ function RoomLive({
                 onToggle={() => (live.listening ? live.stop() : live.start())}
               />
 
-              <aside className="flex flex-1 flex-col rounded-4xl border border-border bg-card">
+              <aside className="flex flex-1 flex-col rounded-4xl border border-border bg-card lg:min-h-0">
                 <div className="flex items-center justify-between border-b border-border px-4 py-3">
                   <div className="text-sm font-semibold">💬 Live chat</div>
                   <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
                     {lines.filter((l) => l.kind === "message").length} msgs
                   </span>
                 </div>
-                <div ref={scrollRef} className="max-h-[260px] flex-1 space-y-3 overflow-y-auto p-4">
+                <div
+                  ref={scrollRef}
+                  className="max-h-[260px] flex-1 space-y-3 overflow-y-auto p-4 lg:max-h-none lg:min-h-0"
+                >
                   {lines.length === 0 && (
                     <div className="text-center text-sm text-muted-foreground py-8">
                       No messages yet — say hello! 👋
