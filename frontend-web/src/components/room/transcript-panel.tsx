@@ -89,7 +89,7 @@ export function TranscriptPanel({
         )}
       </div>
 
-      <div ref={scrollRef} className="max-h-[320px] flex-1 space-y-3 overflow-y-auto p-4">
+      <div ref={scrollRef} className="max-h-[240px] flex-1 space-y-3 overflow-y-auto p-4">
         {error && <p className="text-sm text-destructive">{error}</p>}
 
         {lines.length === 0 && !error && (

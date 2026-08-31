@@ -23,7 +23,6 @@ import {
 } from "@/lib/api";
 import { ensureUser, randomGuestName, useIdentity } from "@/lib/identity";
 import { LANGS, topicEmoji } from "@/lib/presentation";
-import { useAiVoice } from "@/lib/voice/use-ai-voice";
 import { LeaveDialog } from "@/components/room/leave-dialog";
 import { IdeaPanel } from "@/components/room/idea-panel";
 import type { TranscriptLine } from "@/components/room/transcript-panel";
@@ -31,7 +30,6 @@ import { TranscriptPanel } from "@/components/room/transcript-panel";
 import { useLiveTranscribe } from "@/lib/voice/use-live-transcribe";
 import { useRoomVoice } from "@/lib/voice/use-room-voice";
 import { VOICE_FILTERS, voiceFilterLabel, type VoiceFilterId } from "@/lib/voice/voice-mask";
-import { AiVoiceCard } from "@/components/room/voice-panel";
 import { ErrorState } from "./topics.index";
 
 export const Route = createFileRoute("/rooms/$roomId")({
@@ -152,8 +150,7 @@ function RoomLive({
   // Incognito rooms disguise the outbound voice with the user's chosen filter
   // (PRD §7.2); normal rooms keep the real voice ("none").
   const voice = useRoomVoice(room.id, userId, displayName, voiceFilter);
-  const ai = useAiVoice(topicId);
-  const { suspendMic, resumeMic, setHostMuted, leave: leaveCall } = voice;
+  const { setHostMuted, leave: leaveCall } = voice;
 
   const flashNotice = useCallback((message: string) => {
     setNotice(message);
@@ -172,21 +169,11 @@ function RoomLive({
     [userId, room.id, flashNotice],
   );
   useEffect(() => {
-    if (ai.active) suspendMic();
-    else resumeMic();
-  }, [ai.active, suspendMic, resumeMic]);
-  useEffect(() => {
     if (!voice.error) return;
     setNotice(voice.error);
     const timer = window.setTimeout(() => setNotice(null), 5000);
     return () => window.clearTimeout(timer);
   }, [voice.error]);
-  useEffect(() => {
-    if (!ai.error) return;
-    setNotice(ai.error);
-    const timer = window.setTimeout(() => setNotice(null), 5000);
-    return () => window.clearTimeout(timer);
-  }, [ai.error]);
 
   // 1) Ensure a profile, join the room, then load history.
   useEffect(() => {
@@ -530,7 +517,6 @@ function RoomLive({
         />
         <QuickNavButton targetId="topic-section" icon="📚" label="Topic" />
         <QuickNavButton targetId="translate-section" icon="🌐" label="Translate" />
-        <QuickNavButton targetId="ai-section" icon="🤖" label="AI" />
       </div>
 
       <div className="mb-3">
@@ -547,7 +533,7 @@ function RoomLive({
 
       <div className="grid lg:grid-cols-12 gap-5">
         {/* People stage with merged room info */}
-        <div className="lg:col-span-8 rounded-4xl border border-border bg-gradient-to-br from-cream to-card p-5 sm:p-7 min-h-[440px]">
+        <div className="rounded-4xl border border-border bg-gradient-to-br from-cream to-card p-5 sm:p-7 lg:col-span-8">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -623,10 +609,9 @@ function RoomLive({
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <VoiceToggle
                 on={voice.micOn}
-                disabled={voice.micSuspended}
                 onClick={voice.toggleMic}
                 onLabel="🎙️ Mic on"
-                offLabel={voice.micSuspended ? "🎙️ Paused for AI" : "🔇 Mic off"}
+                offLabel="🔇 Mic off"
               />
               <VoiceToggle
                 on={voice.speakerOn}
@@ -710,91 +695,92 @@ function RoomLive({
           </div>
         </div>
 
-        {/* Side chat */}
-        <aside className="lg:col-span-4 rounded-4xl border border-border bg-card flex flex-col min-h-[440px]">
-          <div className="flex items-center justify-between border-b border-border px-4 py-3">
-            <div className="text-sm font-semibold">💬 Live chat</div>
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              {lines.filter((l) => l.kind === "message").length} msgs
-            </span>
-          </div>
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3 max-h-[460px]">
-            {lines.length === 0 && (
-              <div className="text-center text-sm text-muted-foreground py-8">
-                No messages yet — say hello! 👋
-              </div>
-            )}
-            {lines.map((l) => (
-              <ChatBubble
-                key={l.id}
-                line={l}
-                onSave={
-                  l.kind === "message"
-                    ? () =>
-                        saveNote({
-                          improved_text: l.text,
-                          source: l.mine ? "self" : "partner",
-                        })
-                    : undefined
-                }
-              />
-            ))}
-          </div>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              send(draft);
-            }}
-            className="border-t border-border p-3 flex items-center gap-2"
-          >
-            <MicButton
-              onTranscript={(t) => {
-                setDraft((d) => (d ? `${d} ${t}` : t));
-                setNotice("Speech turned into text — edit and send, or save it.");
-                window.setTimeout(() => setNotice(null), 2500);
-              }}
-              onError={(msg) => {
-                setNotice(msg);
-                window.setTimeout(() => setNotice(null), 5000);
-              }}
-            />
-            <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder={connected ? "Type or speak a message…" : "Connecting to the room…"}
-              disabled={!connected}
-              className="flex-1 rounded-full border border-border bg-background px-4 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-60"
-            />
-            {draft.trim() && (
-              <button
-                type="button"
-                onClick={() => saveNote({ improved_text: draft.trim(), source: "self" })}
-                title="Save this sentence to your notes"
-                className="rounded-full border border-border px-3 py-2 text-xs font-semibold hover:bg-muted"
-              >
-                ＋ Note
-              </button>
-            )}
-            <button
-              type="submit"
-              disabled={!connected}
-              className="rounded-full bg-primary text-primary-foreground px-4 py-2 text-sm font-semibold hover:opacity-90 disabled:opacity-50"
-            >
-              Send
-            </button>
-          </form>
-        </aside>
-      </div>
+        {/* Right column: what was SAID above what was TYPED. Speech is the
+            primary activity in a room, so it gets the top slot; chat is the
+            fallback channel and sits under it. */}
+        <div id="transcript-section" className="flex scroll-mt-24 flex-col gap-5 lg:col-span-4">
+          <TranscriptPanel
+            lines={transcriptLines}
+            supported={live.supported}
+            listening={live.listening}
+            error={live.error}
+            onToggle={() => (live.listening ? live.stop() : live.start())}
+          />
 
-      {/* Live script — what everyone SAID, as opposed to what they typed (§8.9) */}
-      <div id="transcript-section" className="mt-5 scroll-mt-24">
-        <TranscriptPanel
-          lines={transcriptLines}
-          supported={live.supported}
-          listening={live.listening}
-          error={live.error}
-          onToggle={() => (live.listening ? live.stop() : live.start())}
-        />
+          <aside className="flex flex-1 flex-col rounded-4xl border border-border bg-card">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <div className="text-sm font-semibold">💬 Live chat</div>
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                {lines.filter((l) => l.kind === "message").length} msgs
+              </span>
+            </div>
+            <div ref={scrollRef} className="max-h-[260px] flex-1 space-y-3 overflow-y-auto p-4">
+              {lines.length === 0 && (
+                <div className="text-center text-sm text-muted-foreground py-8">
+                  No messages yet — say hello! 👋
+                </div>
+              )}
+              {lines.map((l) => (
+                <ChatBubble
+                  key={l.id}
+                  line={l}
+                  onSave={
+                    l.kind === "message"
+                      ? () =>
+                          saveNote({
+                            improved_text: l.text,
+                            source: l.mine ? "self" : "partner",
+                          })
+                      : undefined
+                  }
+                />
+              ))}
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                send(draft);
+              }}
+              className="border-t border-border p-3 flex items-center gap-2"
+            >
+              <MicButton
+                onTranscript={(t) => {
+                  setDraft((d) => (d ? `${d} ${t}` : t));
+                  setNotice("Speech turned into text — edit and send, or save it.");
+                  window.setTimeout(() => setNotice(null), 2500);
+                }}
+                onError={(msg) => {
+                  setNotice(msg);
+                  window.setTimeout(() => setNotice(null), 5000);
+                }}
+              />
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder={connected ? "Type or speak a message…" : "Connecting to the room…"}
+                disabled={!connected}
+                className="flex-1 rounded-full border border-border bg-background px-4 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-60"
+              />
+              {draft.trim() && (
+                <button
+                  type="button"
+                  onClick={() => saveNote({ improved_text: draft.trim(), source: "self" })}
+                  title="Save this sentence to your notes"
+                  className="rounded-full border border-border px-3 py-2 text-xs font-semibold hover:bg-muted"
+                >
+                  ＋ Note
+                </button>
+              )}
+              <button
+                type="submit"
+                disabled={!connected}
+                className="rounded-full bg-primary text-primary-foreground px-4 py-2 text-sm font-semibold hover:opacity-90 disabled:opacity-50"
+              >
+                Send
+              </button>
+            </form>
+          </aside>
+        </div>
       </div>
 
       {/* Topic detail — questions come from the topic's documentation (PRD §8.2) */}
@@ -802,30 +788,12 @@ function RoomLive({
         <TopicDetailCard topic={topic} topicId={topicId} onUse={(t) => setDraft(t)} />
       </div>
 
-      {/* Translate + AI */}
-      <div className="mt-5 grid lg:grid-cols-2 gap-5 items-start">
-        <div id="translate-section" className="scroll-mt-24">
-          {/* `saveNote` tags the note with the room's topic automatically. */}
-          <TranslateCard onSaveNote={saveNote} />
-        </div>
-        <div id="ai-section" className="scroll-mt-24 flex flex-col gap-5">
-          <AiCoachCard
-            topicId={topicId}
-            onUse={(text) => setDraft(text)}
-            onSave={(original, improved) =>
-              saveNote({
-                original_text: original || null,
-                improved_text: improved,
-                source: "ai",
-              })
-            }
-          />
-          <AiVoiceCard
-            ai={ai}
-            micSuspended={voice.micSuspended}
-            onSaveNote={(text) => saveNote({ improved_text: text, source: "ai" })}
-          />
-        </div>
+      {/* Translator. The in-room AI coach moved to the 💡 Ideas panel in the
+          rail, which reads the actual conversation instead of asking the
+          learner to paste it. */}
+      <div id="translate-section" className="mt-5 scroll-mt-24">
+        {/* `saveNote` tags the note with the room's topic automatically. */}
+        <TranslateCard onSaveNote={saveNote} />
       </div>
 
       {/* Assessment happens on the way out, never beside a live conversation
@@ -1556,143 +1524,6 @@ function LangSelect({
     </label>
   );
 }
-
-/* ---------- AI coach (real /assist) ---------- */
-
-function AiCoachCard({
-  topicId,
-  onUse,
-  onSave,
-}: {
-  topicId: string | null;
-  onUse: (text: string) => void;
-  onSave: (original: string, improved: string) => void;
-}) {
-  const [improve, setImprove] = useState("");
-  const [context, setContext] = useState("");
-  const [result, setResult] = useState<{
-    suggestion: string;
-    provider: string;
-    original: string;
-  } | null>(null);
-  const [loading, setLoading] = useState<"improve" | "reply" | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
-  const ask = async (kind: "improve" | "reply") => {
-    setErr(null);
-    if (kind === "improve" && !improve.trim()) return;
-    setLoading(kind);
-    try {
-      const res = await assist({
-        kind,
-        text: kind === "improve" ? improve.trim() : "",
-        context: kind === "reply" ? context.trim() || null : null,
-        topic_id: topicId,
-      });
-      setResult({
-        suggestion: res.suggestion,
-        provider: res.provider,
-        original: kind === "improve" ? improve.trim() : "",
-      });
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  return (
-    <div className="rounded-4xl border border-border bg-card p-5 sm:p-6 flex flex-col">
-      <div className="flex items-center gap-2">
-        <span className="h-8 w-8 rounded-2xl bg-secondary/40 inline-flex items-center justify-center">
-          🤖
-        </span>
-        <div>
-          <div className="text-sm font-semibold">AI coach</div>
-          <div className="text-[11px] text-muted-foreground">
-            Improve a sentence or get a reply idea{topicId ? " · grounded in this topic" : ""}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-4 space-y-3">
-        <div>
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Improve my sentence
-          </span>
-          <div className="mt-1 flex gap-2">
-            <input
-              value={improve}
-              onChange={(e) => setImprove(e.target.value)}
-              placeholder="e.g. i very like travel"
-              className="flex-1 rounded-full border border-border bg-background px-4 py-2 text-sm focus:outline-none focus:border-primary"
-            />
-            <button
-              onClick={() => ask("improve")}
-              disabled={loading !== null || !improve.trim()}
-              className="rounded-full bg-primary text-primary-foreground px-3 py-2 text-xs font-semibold hover:opacity-90 disabled:opacity-50"
-            >
-              {loading === "improve" ? "…" : "Improve"}
-            </button>
-          </div>
-        </div>
-        <div>
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            What should I say next?
-          </span>
-          <div className="mt-1 flex gap-2">
-            <input
-              value={context}
-              onChange={(e) => setContext(e.target.value)}
-              placeholder="paste the last message (optional)"
-              className="flex-1 rounded-full border border-border bg-background px-4 py-2 text-sm focus:outline-none focus:border-primary"
-            />
-            <button
-              onClick={() => ask("reply")}
-              disabled={loading !== null}
-              className="rounded-full border border-border bg-background px-3 py-2 text-xs font-semibold hover:bg-muted disabled:opacity-50"
-            >
-              {loading === "reply" ? "…" : "Idea"}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-4 flex-1 min-h-[120px] rounded-2xl border border-border bg-background/60 p-4">
-        {err ? (
-          <span className="text-sm text-destructive">{err}</span>
-        ) : result ? (
-          <>
-            <div className="text-[11px] uppercase tracking-wider text-primary font-semibold">
-              Suggestion · {result.provider}
-            </div>
-            <p className="mt-1 text-sm leading-snug">{result.suggestion}</p>
-            <div className="mt-3 flex gap-2">
-              <button
-                onClick={() => onUse(result.suggestion)}
-                className="rounded-full bg-primary px-3 py-1 text-xs text-primary-foreground hover:opacity-90"
-              >
-                Use in chat
-              </button>
-              <button
-                onClick={() => onSave(result.original, result.suggestion)}
-                className="rounded-full border border-border px-3 py-1 text-xs font-semibold hover:bg-muted"
-              >
-                ＋ Save to notes
-              </button>
-            </div>
-          </>
-        ) : (
-          <span className="text-sm text-muted-foreground">
-            Ask the coach to improve a sentence or suggest a reply.
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ---------- small pieces ---------- */
 
 function ChatBubble({ line, onSave }: { line: ChatLine; onSave?: () => void }) {
   if (line.kind === "system") {
