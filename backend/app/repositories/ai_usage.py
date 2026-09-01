@@ -59,18 +59,83 @@ class AiUsageRepository:
 
     async def cost_per_user(
         self, days: int = 30, limit: int = 50
-    ) -> list[tuple[uuid.UUID, Decimal]]:
-        """Your COGS, per user. Everything about pricing follows from this."""
+    ) -> list[tuple[uuid.UUID, Decimal, int]]:
+        """(user, total cost, call count) — your COGS per learner.
+
+        Everything about pricing follows from this number. The call count comes
+        back with it because cost alone cannot tell a heavy user from one
+        expensive call.
+        """
         since = datetime.now(UTC) - timedelta(days=days)
         stmt = (
-            select(AiUsage.user_id, func.sum(AiUsage.cost_usd))
+            select(AiUsage.user_id, func.sum(AiUsage.cost_usd), func.count())
             .where(AiUsage.created_at >= since, AiUsage.user_id.is_not(None))
             .group_by(AiUsage.user_id)
             .order_by(func.sum(AiUsage.cost_usd).desc())
             .limit(limit)
         )
         rows = (await self.session.execute(stmt)).all()
-        return [(uid, Decimal(str(cost or 0))) for uid, cost in rows]
+        return [(uid, Decimal(str(cost or 0)), int(n)) for uid, cost, n in rows]
+
+    async def daily(self, days: int = 30) -> list[tuple[str, Decimal, int]]:
+        """(YYYY-MM-DD, cost, calls) oldest first — the trend line.
+
+        Days with no calls are filled in as zero here rather than in the UI: a
+        chart that silently skips quiet days compresses time and makes a spike
+        look like a plateau.
+        """
+        since = (datetime.now(UTC) - timedelta(days=days - 1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        # `date()` is the one function SQLite and Postgres spell the same way for
+        # this; `date_trunc` would not work on SQLite (dev).
+        day = func.date(AiUsage.created_at)
+        stmt = (
+            select(day, func.sum(AiUsage.cost_usd), func.count())
+            .where(AiUsage.created_at >= since)
+            .group_by(day)
+        )
+        found = {
+            str(d): (Decimal(str(cost or 0)), int(n))
+            for d, cost, n in (await self.session.execute(stmt)).all()
+        }
+
+        out: list[tuple[str, Decimal, int]] = []
+        for offset in range(days):
+            key = (since + timedelta(days=offset)).strftime("%Y-%m-%d")
+            cost, calls = found.get(key, (Decimal(0), 0))
+            out.append((key, cost, calls))
+        return out
+
+    async def recent(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        *,
+        task: str | None = None,
+        user_id: uuid.UUID | None = None,
+        failed_only: bool = False,
+    ) -> list[AiUsage]:
+        """The raw ledger, newest first.
+
+        Aggregates answer "how much"; this answers "which call". When one figure
+        looks wrong, the only way to find out why is to read the individual rows
+        that produced it.
+        """
+        stmt = select(AiUsage)
+        if task:
+            stmt = stmt.where(AiUsage.task == task)
+        if user_id is not None:
+            stmt = stmt.where(AiUsage.user_id == user_id)
+        if failed_only:
+            stmt = stmt.where(AiUsage.ok.is_(False))
+        stmt = stmt.order_by(AiUsage.created_at.desc()).limit(limit).offset(offset)
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def count_calls(self, days: int = 30) -> int:
+        since = datetime.now(UTC) - timedelta(days=days)
+        stmt = select(func.count()).select_from(AiUsage).where(AiUsage.created_at >= since)
+        return int((await self.session.execute(stmt)).scalar_one())
 
     async def health(self, hours: int = 24) -> list[tuple[str, int, int, int]]:
         """(model, calls, degraded, failed) — a rising degraded rate is an outage."""

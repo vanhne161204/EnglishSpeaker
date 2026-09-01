@@ -11,7 +11,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { adminAiSpend } from "@/lib/api";
+import { adminAiSpend, type SpendByDay } from "@/lib/api";
+
+import { CallLedger } from "./call-ledger";
 
 /** Display only: a fixed number of places, and a hint when it rounds to zero. */
 function money(value: string): string {
@@ -60,6 +62,8 @@ export function SpendPanel() {
           hours. Every one of those was a learner who got an error.
         </p>
       )}
+
+      <TrendChart days={s.by_day} calls={s.calls} />
 
       <div className="flex items-center gap-2">
         <span className="text-xs text-muted-foreground">Breakdown over</span>
@@ -117,7 +121,13 @@ export function SpendPanel() {
                       <span className="ml-1.5 text-xs text-muted-foreground">@{u.username}</span>
                     )}
                   </span>
-                  <span className="flex-none text-muted-foreground">{money(u.cost_usd)}</span>
+                  <span className="flex-none text-right text-muted-foreground">
+                    {money(u.cost_usd)}
+                    {/* Cost alone cannot tell a heavy user from one expensive call. */}
+                    <span className="block text-[10px] opacity-70">
+                      {u.calls} call{u.calls === 1 ? "" : "s"}
+                    </span>
+                  </span>
                 </li>
               ))}
             </ul>
@@ -168,6 +178,64 @@ export function SpendPanel() {
           can see before the bill shows it.
         </p>
       </Card>
+
+      <CallLedger />
+    </div>
+  );
+}
+
+/**
+ * Spend per day. Bars rather than a line: each day is a discrete total, and a
+ * line between two daily totals implies values in between that do not exist.
+ *
+ * Quiet days arrive from the server as zeros rather than being skipped — a
+ * chart that drops empty days compresses time and turns a one-day spike into
+ * what looks like a sustained plateau.
+ */
+function TrendChart({ days, calls }: { days: SpendByDay[]; calls: number }) {
+  const peak = Math.max(...days.map((d) => Number(d.cost_usd)), 0);
+  const total = days.reduce((sum, d) => sum + Number(d.cost_usd), 0);
+
+  return (
+    <div className="rounded-4xl border border-border bg-card p-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-sm font-semibold text-foreground">Spend per day</h3>
+        <span className="text-xs text-muted-foreground">
+          {calls.toLocaleString()} call{calls === 1 ? "" : "s"} · {money(String(total))} total
+        </span>
+      </div>
+
+      {peak === 0 ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          No AI spend in this window.
+        </p>
+      ) : (
+        <div className="mt-5 flex h-32 items-end gap-[2px]">
+          {days.map((d) => {
+            const value = Number(d.cost_usd);
+            // A day with calls should never render as nothing, so anything
+            // non-zero gets at least a visible sliver.
+            const height = value === 0 ? 0 : Math.max((value / peak) * 100, 2);
+            return (
+              <div
+                key={d.day}
+                className="group relative flex-1 rounded-t bg-primary/80 hover:bg-primary"
+                style={{ height: `${height}%`, minHeight: value === 0 ? "1px" : undefined }}
+                title={`${d.day}: ${money(d.cost_usd)} over ${d.calls} call${d.calls === 1 ? "" : "s"}`}
+              >
+                {value === 0 && <div className="h-px w-full bg-border" />}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {days.length > 1 && (
+        <div className="mt-2 flex justify-between text-[10px] text-muted-foreground">
+          <span>{days[0].day}</span>
+          <span>{days[days.length - 1].day}</span>
+        </div>
+      )}
     </div>
   );
 }

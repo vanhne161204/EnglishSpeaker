@@ -11,7 +11,13 @@ import uuid
 
 from app.ai.chain import FallbackChain
 from app.ai.errors import ProviderError
-from app.ai.metering import BudgetGuard, MeteredProvider, UsageSink
+from app.ai.metering import (
+    BudgetGuard,
+    MeteredProvider,
+    MeteredTranscriber,
+    MeteredTranslator,
+    UsageSink,
+)
 from app.ai.ports import LLMProvider
 from app.ai.providers.stub import StubProvider
 from app.ai.registry import get_provider
@@ -70,7 +76,9 @@ def build_llm(
     return stack, route
 
 
-def build_translator(user_id: uuid.UUID | None = None) -> Translator:
+def build_translator(
+    user_id: uuid.UUID | None = None, sink: UsageSink | None = None
+) -> Translator:
     """Translator chain from ``TRANSLATION_PROVIDER`` (docs §18.10).
 
     Order is configuration, not code — the old service hardcoded
@@ -112,11 +120,26 @@ def build_translator(user_id: uuid.UUID | None = None) -> Translator:
         add_llm()
 
     engines.append(StubTranslator())
-    return TranslatorChain(engines)
+
+    # Wrapped OUTSIDE the chain, so a fallback's cost is counted and only one row
+    # is written per request rather than one per engine tried.
+    #
+    # The LLM engine is already metered from the inside (it comes from
+    # `build_llm`), which would double-count it — but only if it actually
+    # answers, and the outer row then carries provider="llm" with $0. Accepted:
+    # the alternative is threading a "do not meter me" flag through the chain.
+    return MeteredTranslator(TranslatorChain(engines), sink or UsageSink(), user_id)
 
 
-def build_transcriber() -> Transcriber:
-    """Speech-to-text chain from ``STT_PROVIDER`` (docs §18.10)."""
+def build_transcriber(
+    user_id: uuid.UUID | None = None, sink: UsageSink | None = None
+) -> Transcriber:
+    """Speech-to-text chain from ``STT_PROVIDER`` (docs §18.10).
+
+    Metered because Deepgram bills per audio minute. It is $0 today — the
+    browser does the work and never reaches this code — but an unmetered paid
+    path is a bill you find out about from your card statement.
+    """
     from app.ai.providers.transcribers import (
         DeepgramTranscriber,
         FasterWhisperTranscriber,
@@ -141,4 +164,4 @@ def build_transcriber() -> Transcriber:
             )
 
     engines.append(StubTranscriber())
-    return TranscriberChain(engines)
+    return MeteredTranscriber(TranscriberChain(engines), sink or UsageSink(), user_id)

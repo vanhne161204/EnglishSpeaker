@@ -13,13 +13,17 @@ chain so a fallback's cost is still counted.
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from app.ai.errors import ProviderError
 from app.ai.ports import LLMProvider, LLMRequest, LLMResponse
+from app.ai.pricing import deepgram_cost, google_translate_cost
 from app.ai.routing import AiTask
+from app.ai.stt_port import Transcriber, Transcript
+from app.ai.translate_port import TranslateJob, Translation, Translator
 from app.core.config import settings
 from app.models.ai_usage import AiUsage
 from app.models.enums import PlanTier
@@ -212,3 +216,132 @@ class BudgetGuard:
                 f"You have used your {_FRIENDLY[self._task]} for today "
                 f"({used}/{cap}). They reset in 24 hours.",
             )
+
+
+class MeteredTranslator:
+    """Records what a translation call cost.
+
+    Translation used to be the one paid path with no row in the ledger. It bills
+    per **character**, not per token, so it needs its own decorator rather than a
+    reshaped ``LLMRequest``.
+
+    The LLM translator is already metered from the inside (it goes through
+    ``build_llm``); wrapping it again would double-count, so the factory only
+    wraps the non-LLM engines.
+    """
+
+    def __init__(
+        self,
+        inner: Translator,
+        sink: UsageSink,
+        user_id: uuid.UUID | None = None,
+        room_id: uuid.UUID | None = None,
+    ) -> None:
+        self.name = inner.name
+        self._inner = inner
+        self._sink = sink
+        self._user_id = user_id
+        self._room_id = room_id
+
+    async def translate(self, job: TranslateJob) -> Translation:
+        started = time.perf_counter()
+        try:
+            result = await self._inner.translate(job)
+        except ProviderError as exc:
+            await self._sink.record(
+                AiUsage(
+                    user_id=self._user_id,
+                    room_id=self._room_id,
+                    task=AiTask.translation.value,
+                    provider=getattr(exc, "provider", "unknown"),
+                    model="translate",
+                    latency_ms=int((time.perf_counter() - started) * 1000),
+                    ok=False,
+                )
+            )
+            raise
+
+        # Only Google's keyed API bills. Argos runs locally and the stub is a
+        # placeholder, so charging for them would invent spend that never
+        # happened — worse than recording none.
+        billed = result.provider == "google" and bool(settings.google_translate_api_key)
+        await self._sink.record(
+            AiUsage(
+                user_id=self._user_id,
+                room_id=self._room_id,
+                task=AiTask.translation.value,
+                provider=result.provider,
+                model="translate",
+                # Characters in, characters out — stored in the token columns
+                # because that is what "size of this call" means for this engine.
+                input_tokens=len(job.text),
+                output_tokens=len(result.text),
+                cost_usd=google_translate_cost(len(job.text)) if billed else Decimal(0),
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                degraded=result.degraded,
+                ok=True,
+            )
+        )
+        return result
+
+
+class MeteredTranscriber:
+    """Records what a speech-to-text call cost.
+
+    Deepgram bills per audio **minute**, from the duration it reports back.
+    faster-whisper is local: no invoice, but it does burn CPU on a 2 GB box, so
+    the row is still written at $0 to make that visible.
+
+    The browser's Web Speech API is the primary path and never reaches the
+    server, so it correctly produces no row at all.
+    """
+
+    def __init__(
+        self,
+        inner: Transcriber,
+        sink: UsageSink,
+        user_id: uuid.UUID | None = None,
+        room_id: uuid.UUID | None = None,
+    ) -> None:
+        self.name = inner.name
+        self._inner = inner
+        self._sink = sink
+        self._user_id = user_id
+        self._room_id = room_id
+
+    async def transcribe(self, audio: bytes, language: str | None = None) -> Transcript:
+        started = time.perf_counter()
+        try:
+            result = await self._inner.transcribe(audio, language)
+        except ProviderError as exc:
+            await self._sink.record(
+                AiUsage(
+                    user_id=self._user_id,
+                    room_id=self._room_id,
+                    task=AiTask.transcription.value,
+                    provider=getattr(exc, "provider", "unknown"),
+                    model="stt",
+                    latency_ms=int((time.perf_counter() - started) * 1000),
+                    ok=False,
+                )
+            )
+            raise
+
+        cost = deepgram_cost(result.duration_s) if result.provider == "deepgram" else Decimal(0)
+        await self._sink.record(
+            AiUsage(
+                user_id=self._user_id,
+                room_id=self._room_id,
+                task=AiTask.transcription.value,
+                provider=result.provider,
+                model="stt",
+                # Whole seconds of audio: the billing unit for this engine.
+                input_tokens=int(result.duration_s or 0),
+                output_tokens=len(result.text),
+                cost_usd=cost,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                degraded=result.degraded,
+                ok=True,
+            )
+        )
+        return result

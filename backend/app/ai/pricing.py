@@ -72,3 +72,35 @@ PRICES: dict[str, ModelPrice] = {
 
 #: Charged for a stub response, so cost arithmetic never special-cases it.
 FREE = ModelPrice(Decimal(0), Decimal(0), Decimal(0))
+
+
+# --- Non-token pricing -----------------------------------------------------
+#
+# Two engines in this system do not bill per token, and pretending they do would
+# put a wrong number in the ledger. Translation bills per CHARACTER and
+# speech-to-text bills per audio MINUTE, so each gets its own rate.
+#
+# These exist so the spend dashboard cannot quietly become wrong the day one of
+# them is switched on. Both are $0 in the default configuration: translation
+# falls back to Argos (local) or Google's free endpoint when no API key is set,
+# and speech-to-text runs in the learner's browser.
+
+#: USD per 1M characters, Google Cloud Translation v2 (only billed with an API key).
+GOOGLE_TRANSLATE_PER_MCHAR = _d("20.00")
+
+#: USD per audio minute, Deepgram Nova pay-as-you-go (pre-recorded).
+DEEPGRAM_PER_MINUTE = _d("0.0043")
+
+
+def google_translate_cost(characters: int) -> Decimal:
+    """What one Google Translate call cost. Zero without a key — the free
+    endpoint is not billed, and recording a phantom charge is worse than
+    recording nothing."""
+    return (Decimal(max(characters, 0)) * GOOGLE_TRANSLATE_PER_MCHAR) / _PER_MILLION
+
+
+def deepgram_cost(duration_s: float | None) -> Decimal:
+    """What one Deepgram call cost, from the audio length it reports back."""
+    if not duration_s or duration_s <= 0:
+        return Decimal(0)
+    return (Decimal(str(duration_s)) / Decimal(60)) * DEEPGRAM_PER_MINUTE

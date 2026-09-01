@@ -40,11 +40,14 @@ from app.schemas.admin import (
     AdminUserPage,
     AdminUserRead,
     AdminUserUpdate,
+    AiCallPage,
+    AiCallRead,
     AiSpendSummary,
     BanRead,
     ModelHealth,
     ReportCreate,
     ReportReview,
+    SpendByDay,
     SpendByTask,
     SpendByUser,
 )
@@ -200,7 +203,7 @@ class AdminService:
         ]
 
         by_user: list[SpendByUser] = []
-        for user_id, cost in await self.usage.cost_per_user(days, limit=top):
+        for user_id, cost, calls in await self.usage.cost_per_user(days, limit=top):
             user = await self.users.get(user_id)
             by_user.append(
                 SpendByUser(
@@ -208,9 +211,14 @@ class AdminService:
                     username=user.username if user else None,
                     display_name=user.display_name if user else "(deleted account)",
                     cost_usd=_money(cost),
-                    calls=0,
+                    calls=calls,
                 )
             )
+
+        by_day = [
+            SpendByDay(day=day, cost_usd=_money(cost), calls=calls)
+            for day, cost, calls in await self.usage.daily(min(days, 90))
+        ]
 
         health = [
             ModelHealth(model=model, calls=calls, degraded=degraded, failed=failed)
@@ -222,9 +230,28 @@ class AdminService:
             week_usd=_money(week),
             month_usd=_money(month),
             failed_24h=sum(h.failed for h in health),
+            calls=await self.usage.count_calls(days),
+            by_day=by_day,
             by_task=by_task,
             by_user=by_user,
             health=health,
+        )
+
+    async def ai_calls(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        *,
+        task: str | None = None,
+        user_id: uuid.UUID | None = None,
+        failed_only: bool = False,
+    ) -> AiCallPage:
+        """The raw ledger: one row per AI call, newest first."""
+        rows = await self.usage.recent(
+            limit, offset, task=task, user_id=user_id, failed_only=failed_only
+        )
+        return AiCallPage(
+            items=[AiCallRead.model_validate(r) for r in rows], limit=limit, offset=offset
         )
 
     # --- abuse reports -----------------------------------------------------

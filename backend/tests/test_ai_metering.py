@@ -22,7 +22,7 @@ from app.ai.metering import (
 )
 from app.ai.ports import Effort, LLMRequest
 from app.ai.providers.stub import FakeProvider
-from app.ai.routing import DEFAULT_ROUTES, AiTask, get_route
+from app.ai.routing import DEFAULT_ROUTES, LLM_TASKS, AiTask, get_route
 from app.db.session import AsyncSessionLocal
 from app.models.ai_usage import AiUsage
 from app.models.enums import PlanTier
@@ -44,8 +44,12 @@ async def _spend_rows() -> list[AiUsage]:
 
 
 def test_every_task_and_tier_combination_has_a_route() -> None:
-    """A missing entry would KeyError at request time, in a live room."""
-    for task in AiTask:
+    """A missing entry would KeyError at request time, in a live room.
+
+    Only LLM tasks: `transcription` bills per audio minute and never touches a
+    model chain (see `routing.LLM_TASKS`).
+    """
+    for task in LLM_TASKS:
         for tier in PlanTier:
             assert (task, tier) in DEFAULT_ROUTES, f"no route for {task}:{tier}"
 
@@ -186,7 +190,7 @@ async def test_caps_are_per_task_not_shared() -> None:
 
 
 async def test_premium_gets_a_higher_cap_than_free() -> None:
-    for task in AiTask:
+    for task in LLM_TASKS:
         assert (
             DAILY_CALL_CAPS[(task, PlanTier.premium)]
             > DAILY_CALL_CAPS[(task, PlanTier.free)]

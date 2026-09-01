@@ -20,6 +20,7 @@ from app.schemas.admin import (
     AdminUserPage,
     AdminUserRead,
     AdminUserUpdate,
+    AiCallPage,
     AiSpendSummary,
     AuditRead,
     BanRead,
@@ -102,6 +103,30 @@ async def ai_spend(
     service: AdminService = Depends(get_admin_service),
 ) -> AiSpendSummary:
     return await service.ai_spend(days, top)
+
+
+@router.get(
+    "/ai-calls",
+    response_model=AiCallPage,
+    summary="Every AI call, newest first",
+)
+async def ai_calls(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    task: str | None = Query(default=None),
+    user_id: uuid.UUID | None = Query(default=None),
+    failed_only: bool = Query(default=False),
+    service: AdminService = Depends(get_admin_service),
+) -> AiCallPage:
+    """The raw ledger behind the summary.
+
+    Aggregates say how much was spent; this says which call spent it. When a
+    figure looks wrong, reading the rows that produced it is the only way to
+    find out why.
+    """
+    return await service.ai_calls(
+        limit, offset, task=task, user_id=user_id, failed_only=failed_only
+    )
 
 
 # --- safety queue -----------------------------------------------------------

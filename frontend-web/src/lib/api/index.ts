@@ -11,6 +11,7 @@ import type {
   AdminUser,
   AdminUserPage,
   AdminUserUpdate,
+  AiCallPage,
   AiSpendSummary,
   AnswerTemplate,
   AnswerTemplateCreate,
@@ -299,6 +300,17 @@ export const adminDeleteUser = (userId: string) =>
 
 export const adminAiSpend = (days = 30, top = 10) =>
   apiRequest<AiSpendSummary>("/admin/ai-spend", { query: { days, top } });
+
+/** The raw ledger behind the summary: one row per AI call, newest first. */
+export const adminAiCalls = (
+  params: {
+    limit?: number;
+    offset?: number;
+    task?: string;
+    user_id?: string;
+    failed_only?: boolean;
+  } = {},
+) => apiRequest<AiCallPage>("/admin/ai-calls", { query: params });
 
 export const adminListReports = (status: ReportStatus | null = "open", limit = 50) =>
   apiRequest<AbuseReport[]>("/admin/reports", { query: { status, limit } });

@@ -13,7 +13,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from app.models.enums import PlanTier, UserRole
 
@@ -78,6 +78,55 @@ class SpendByUser(BaseModel):
     calls: int
 
 
+class SpendByDay(BaseModel):
+    """One point on the trend line. Quiet days are present with zeros, so the
+    axis stays evenly spaced instead of compressing time."""
+
+    day: str
+    cost_usd: Decimal
+    calls: int
+
+
+class AiCallRead(BaseModel):
+    """One row of the raw ledger — a single AI call and what it cost.
+
+    Aggregates answer "how much". This answers "which call", which is the only
+    way to find out why a figure looks wrong.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    created_at: datetime
+    task: str
+    provider: str
+    model: str
+    user_id: uuid.UUID | None
+    room_id: uuid.UUID | None
+    input_tokens: int
+    output_tokens: int
+    cached_tokens: int
+    cost_usd: Decimal
+    latency_ms: int
+    #: True when a fallback answered instead of the first choice in the chain.
+    degraded: bool
+    #: False when every provider failed. Recorded so outages show in the data.
+    ok: bool
+
+    @field_serializer("cost_usd")
+    def _fixed_places(self, value: Decimal) -> Decimal:
+        """Money is stored at 8 decimal places, so a zero serialises as "0E-8"
+        — correct and unreadable. Six places matches the pricing table and the
+        summary, so the ledger and the totals above it look like one number."""
+        return value.quantize(Decimal("0.000001"))
+
+
+class AiCallPage(BaseModel):
+    items: list[AiCallRead]
+    limit: int
+    offset: int
+
+
 class ModelHealth(BaseModel):
     """A rising degraded or failed count is an outage, visible before the bill."""
 
@@ -100,6 +149,10 @@ class AiSpendSummary(BaseModel):
     month_usd: Decimal
     # Calls that failed outright in the last 24h. Nonzero means users saw errors.
     failed_24h: int
+    #: Total calls in the window — cost alone cannot tell a busy day from an
+    #: expensive one.
+    calls: int
+    by_day: list[SpendByDay]
     by_task: list[SpendByTask]
     by_user: list[SpendByUser]
     health: list[ModelHealth]

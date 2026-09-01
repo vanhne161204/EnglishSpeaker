@@ -569,7 +569,8 @@ class AiUsage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     user_id: FK users.id ON DELETE CASCADE, index
     room_id: FK rooms.id ON DELETE SET NULL, nullable
-    task:     String(24), index      # rescue | translate | sentence_check | ielts_report
+    task:     String(24), index      # rescue | translation | sentence_check
+                                     # | ielts_report | transcription
     provider: String(24)
     model:    String(48), index
 
@@ -585,6 +586,50 @@ class AiUsage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 Index `(user_id, created_at)` and `(created_at, task)`. Keep 13 months, then roll
 up to monthly totals and delete the rows — this table grows faster than anything
 else in the schema.
+
+### Every paid channel writes a row
+
+A spend dashboard that silently misses a channel is worse than no dashboard: it
+reads as authoritative and is wrong. Three channels can cost money, and all three
+are metered:
+
+| Channel | Bills by | Decorator | Today |
+|---|---|---|---|
+| LLM calls | tokens (cached input discounted) | `MeteredProvider` | the whole bill |
+| Translation | **characters** | `MeteredTranslator` | $0 — no Google key, so the free endpoint or local Argos answers |
+| Speech-to-text | **audio minutes** | `MeteredTranscriber` | $0 — the browser does it and never reaches the server |
+
+Translation and speech-to-text were unmetered until the ledger work. That was
+harmless *right then*, because their default engines are free — and a trap for
+the day either paid engine is switched on, which is exactly when nobody would
+think to check whether the dashboard still covered them.
+
+Note the units. Translation and STT are **not** priced per token, and forcing
+them through the token table would have put a plausible, wrong number in the
+ledger. `pricing.py` carries `GOOGLE_TRANSLATE_PER_MCHAR` and
+`DEEPGRAM_PER_MINUTE` separately for that reason.
+
+Free engines still get a row, at $0. Argos and local Whisper produce no invoice
+but do burn CPU on a 2 GB box, and a spike in volume is a signal whatever the
+price.
+
+An unpriced model **refuses to build** (`registry._price_for` raises) rather than
+recording $0. Silent under-reporting is the failure mode that would quietly wreck
+the margin model in §18.9.
+
+### Aggregates, and the rows behind them
+
+`GET /admin/ai-spend` answers *how much*: totals for 24h / 7d / 30d, a per-day
+series, per task, per user, and provider health.
+
+`GET /admin/ai-calls` answers *which call* — the raw ledger, newest first,
+filterable by task and by failure. When a figure looks wrong, reading the rows
+that produced it is the only way to find out why. The two must agree; a test
+asserts the summary total equals the sum of the individual rows.
+
+Quiet days come back from the server as explicit zeros rather than being skipped.
+A chart that drops empty days compresses time and turns a one-day spike into what
+looks like a sustained plateau.
 
 Four queries you will run constantly:
 

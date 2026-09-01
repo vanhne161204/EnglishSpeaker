@@ -559,14 +559,49 @@ export type ModelHealth = {
   failed: number;
 };
 
+export type SpendByDay = {
+  /** YYYY-MM-DD. Quiet days are present with zeros, so the axis stays even. */
+  day: string;
+  cost_usd: string;
+  calls: number;
+};
+
 export type AiSpendSummary = {
   today_usd: string;
   week_usd: string;
   month_usd: string;
   failed_24h: number;
+  /** Total calls in the window — cost alone cannot tell a busy day from an
+   *  expensive one. */
+  calls: number;
+  by_day: SpendByDay[];
   by_task: SpendByTask[];
   by_user: SpendByUser[];
   health: ModelHealth[];
+};
+
+/** One row of the raw ledger. Aggregates say how much; this says which call. */
+export type AiCall = {
+  id: string;
+  created_at: string;
+  task: string;
+  provider: string;
+  model: string;
+  user_id: string | null;
+  room_id: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  cost_usd: string;
+  latency_ms: number;
+  degraded: boolean;
+  ok: boolean;
+};
+
+export type AiCallPage = {
+  items: AiCall[];
+  limit: number;
+  offset: number;
 };
 
 export type ReportReason = "harassment" | "inappropriate" | "spam" | "hate" | "other";

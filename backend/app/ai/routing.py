@@ -38,6 +38,23 @@ class AiTask(StrEnum):
     sentence_check = "sentence_check"
     #: Coach Report layer 2 — the IELTS band report (§10.3.7).
     ielts_report = "ielts_report"
+    #: Speech-to-text, when it reaches the server at all. The primary path is the
+    #: browser's own engine, which is free and never gets here; this covers the
+    #: upload fallback and Deepgram. NOT an LLM task — see `LLM_TASKS`.
+    transcription = "transcription"
+
+
+#: The tasks that go through the LLM router: they need a model chain, a token
+#: budget and a per-user cap. `transcription` does not — it takes audio bytes,
+#: bills per minute, and no language model accepts either. Keeping the
+#: distinction explicit means a future task cannot quietly slip past the routing
+#: and cap tables just because nobody noticed.
+LLM_TASKS: tuple[AiTask, ...] = (
+    AiTask.rescue,
+    AiTask.translation,
+    AiTask.sentence_check,
+    AiTask.ielts_report,
+)
 
 
 @dataclass(frozen=True, slots=True)
