@@ -25,6 +25,7 @@ import {
 import { ensureUser, randomGuestName, useIdentity } from "@/lib/identity";
 import { LANGS, topicEmoji } from "@/lib/presentation";
 import { LeaveDialog } from "@/components/room/leave-dialog";
+import { ReportDialog } from "@/components/room/report-dialog";
 import { IdeaPanel } from "@/components/room/idea-panel";
 import type { TranscriptLine } from "@/components/room/transcript-panel";
 import { TranscriptPanel } from "@/components/room/transcript-panel";
@@ -131,6 +132,9 @@ function RoomLive({
   const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
   const [interim, setInterim] = useState<TranscriptLine | null>(null);
   const [leaving, setLeaving] = useState(false);
+  // Reporting is available to everyone in the room, not just the host: the
+  // person who needs it most is usually the one with no moderation powers.
+  const [reporting, setReporting] = useState<{ id: string; name: string } | null>(null);
   // The coach report is per-account. Everyone in a room is signed in (the route
   // is guarded), but a token can expire mid-session, so the dialog still checks.
   const identity = useIdentity();
@@ -719,6 +723,7 @@ function RoomLive({
                       muted={mutedIds.has(m.id)}
                       onMute={() => toggleMemberMute(m.id)}
                       onKick={() => kickMember(m.id)}
+                      onReport={() => setReporting({ id: m.id, name: m.name })}
                     />
                   ))}
                   {textOnly.map((p) => (
@@ -729,6 +734,7 @@ function RoomLive({
                       muted={mutedIds.has(p.id)}
                       onMute={() => toggleMemberMute(p.id)}
                       onKick={() => kickMember(p.id)}
+                      onReport={() => setReporting({ id: p.id, name: p.name })}
                     />
                   ))}
                   {Array.from({ length: emptySeats }).map((_, i) => (
@@ -853,6 +859,15 @@ function RoomLive({
         </>
       )}
 
+      {reporting && (
+        <ReportDialog
+          targetUserId={reporting.id}
+          targetName={reporting.name}
+          roomId={room.id}
+          onClose={() => setReporting(null)}
+        />
+      )}
+
       {/* Assessment happens on the way out, never beside a live conversation
           (docs/10_AI_Design.md §10.3.2). Always optional. */}
       <LeaveDialog
@@ -956,6 +971,7 @@ function SpeakerTile({
   canModerate,
   onMute,
   onKick,
+  onReport,
 }: {
   name: string;
   you?: boolean;
@@ -966,6 +982,8 @@ function SpeakerTile({
   canModerate?: boolean;
   onMute?: () => void;
   onKick?: () => void;
+  /** Available to every member, not only the host — see ReportDialog. */
+  onReport?: () => void;
 }) {
   const ring = speaking ? "ring-4 ring-primary/40" : "ring-1 ring-border";
   return (
@@ -1000,6 +1018,15 @@ function SpeakerTile({
           <span>in room</span>
         )}
       </div>
+      {!you && onReport && (
+        <button
+          onClick={onReport}
+          title={`Report ${name} to a moderator`}
+          className="mt-2 text-[11px] text-muted-foreground hover:text-destructive"
+        >
+          Report
+        </button>
+      )}
       {canModerate && !you && (onMute || onKick) && (
         <div className="mt-2 flex items-center gap-1.5 w-full justify-center">
           {onMute && (

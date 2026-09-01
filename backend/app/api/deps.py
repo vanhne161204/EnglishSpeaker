@@ -10,16 +10,21 @@ from app.ai.routing import AiTask
 from app.core.exceptions import AppError
 from app.core.security import decode_access_token
 from app.db.session import AsyncSessionLocal, get_session
-from app.models.enums import PlanTier
+from app.models.enums import PlanTier, UserRole
 from app.models.user import User
+from app.repositories.abuse_report import AbuseReportRepository
+from app.repositories.ai_usage import AiUsageRepository
+from app.repositories.audit import AuditRepository
 from app.repositories.category import CategoryRepository
 from app.repositories.doc import DocRepository
 from app.repositories.message import MessageRepository
 from app.repositories.note import NoteRepository
 from app.repositories.participant import ParticipantRepository
 from app.repositories.room import RoomRepository
+from app.repositories.room_ban import RoomBanRepository
 from app.repositories.topic import TopicRepository
 from app.repositories.user import UserRepository
+from app.services.admin import AdminService
 from app.services.assistant import AssistantService
 from app.services.auth import AuthService
 from app.services.category import CategoryService
@@ -53,6 +58,7 @@ def get_room_service(session: AsyncSession = Depends(get_session)) -> RoomServic
         RoomRepository(session),
         ParticipantRepository(session),
         UserRepository(session),
+        RoomBanRepository(session),
     )
 
 
@@ -99,9 +105,7 @@ def get_assistant_service(
     and the caller's plan tier — not here (docs §18.5).
     """
     tier = PlanTier(user.plan) if user else PlanTier.free
-    llm, route = build_llm(
-        AiTask.rescue, tier, user_id=user.id if user else None
-    )
+    llm, route = build_llm(AiTask.rescue, tier, user_id=user.id if user else None)
     # The doc repo lets the coach ground suggestions in a topic's trusted content.
     return AssistantService(llm, route, DocRepository(session))
 
@@ -158,6 +162,13 @@ class NotAdminError(AppError):
     code = "forbidden"
 
 
+class AccountSuspendedError(AppError):
+    """A valid token for an account an admin has switched off."""
+
+    status_code = 403
+    code = "account_suspended"
+
+
 async def get_current_user(
     authorization: str | None = Header(default=None),
     session: AsyncSession = Depends(get_session),
@@ -179,6 +190,11 @@ async def get_current_user(
     except ValueError as err:
         raise NotAuthenticatedError("Invalid session — sign in again.") from err
     user = await UserRepository(session).get(user_id)
+    if user is not None and user.suspended_at is not None:
+        # Suspension takes effect on the NEXT request, not at the next login.
+        # Tokens are stateless and last 7 days, so checking only at login would
+        # leave a suspended account fully working for a week.
+        raise AccountSuspendedError(user.suspended_reason or "This account has been suspended.")
     if user is None:
         raise NotAuthenticatedError("Session no longer valid — sign in again.")
     return user
@@ -186,7 +202,7 @@ async def get_current_user(
 
 async def require_admin(user: User = Depends(get_current_user)) -> User:
     """Allow only admin users through; raise 403 otherwise."""
-    if not user.is_admin:
+    if user.role != UserRole.admin:
         raise NotAdminError("Admins only.")
     return user
 
@@ -222,3 +238,20 @@ async def authenticate_socket(token: str | None) -> tuple[uuid.UUID, str] | None
     if user is None:
         return None
     return user.id, user.display_name
+
+
+def get_admin_service(session: AsyncSession = Depends(get_session)) -> AdminService:
+    """Wiring for the admin panel.
+
+    Takes the session itself as well as the repositories: a few of the panel's
+    queries are cross-table aggregates (reports per user, topics with no
+    questions) that belong to no single repository.
+    """
+    return AdminService(
+        session,
+        UserRepository(session),
+        AiUsageRepository(session),
+        AbuseReportRepository(session),
+        RoomBanRepository(session),
+        AuditRepository(session),
+    )

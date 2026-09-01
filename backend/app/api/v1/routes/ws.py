@@ -76,7 +76,7 @@ async def room_socket(
     user_id = str(user_uuid)
 
     # A kicked member cannot reconnect to the room's chat (PRD §8.3).
-    if moderation.is_banned(room_id, user_id):
+    if await moderation.is_banned_standalone(room_uuid, user_uuid):
         await websocket.close(code=1008)
         return
 
@@ -120,8 +120,7 @@ async def _send_transcript_history(websocket: WebSocket, room_uuid: uuid.UUID) -
                 room_uuid, limit=_HISTORY_LIMIT
             )
             payload = [
-                TranscriptSegmentRead.model_validate(s).model_dump(mode="json")
-                for s in segments
+                TranscriptSegmentRead.model_validate(s).model_dump(mode="json") for s in segments
             ]
         await websocket.send_json({"type": "transcript_history", "segments": payload})
     except Exception:  # noqa: BLE001 — history is a nicety, not a precondition

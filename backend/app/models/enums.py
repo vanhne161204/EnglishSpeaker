@@ -25,6 +25,21 @@ class RoomKind(StrEnum):
     one_on_one = "one_on_one"
 
 
+class UserRole(StrEnum):
+    """What a user is allowed to do (docs/11_Security.md 11.2).
+
+    Two roles, deliberately. This is an enum rather than the boolean it replaced
+    so that adding a third - a moderator who can clear the report queue but not
+    touch billing - is a migration, not a rewrite of every call site.
+
+    Authority is the ``users.role`` COLUMN and nothing else. It is never derived
+    from a username, an allowlist, or anything the client sends.
+    """
+
+    user = "user"
+    admin = "admin"
+
+
 class PlanTier(StrEnum):
     """Subscription plan a user is on (PRD §8.11)."""
 

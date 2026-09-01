@@ -33,10 +33,10 @@ class Settings(BaseSettings):
     # to bring the demo content back.
     seed_demo_data: bool = False
 
-    # Usernames granted admin rights (topic/content management, PRD §9.2). A user
-    # becomes admin on register/login if their username is in this list. Override
-    # with ADMIN_USERNAMES='["alice","bob"]'.
-    admin_usernames: list[str] = ["admin"]
+    # How long an owner's kick keeps someone out of that room. 0 = permanent.
+    # A kick is a time-out from one conversation, not a life sentence, so this
+    # defaults to a day rather than forever (docs/11_Security.md Step 4).
+    room_ban_hours: int = 24
 
     # --- Redis (matching queues, cache, pub/sub) ---
     redis_url: str = "redis://localhost:6379/0"

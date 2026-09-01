@@ -6,6 +6,12 @@
 
 import { API_BASE_URL, apiRequest, authToken, WS_BASE_URL } from "./client";
 import type {
+  AbuseReport,
+  AdminOverview,
+  AdminUser,
+  AdminUserPage,
+  AdminUserUpdate,
+  AiSpendSummary,
   AnswerTemplate,
   AnswerTemplateCreate,
   AnswerTemplateUpdate,
@@ -42,7 +48,13 @@ import type {
   QuestionUpdate,
   Room,
   RoomCreate,
+  AuditEntry,
+  ReportCreate,
   ReportMode,
+  ReportReview,
+  ReportStatus,
+  RoomBan,
+  UserRole,
   RoomKind,
   SentenceFeedback,
   SessionReport,
@@ -260,3 +272,49 @@ export async function transcribe(audio: Blob, language?: string): Promise<Transc
   if (!res.ok) throw new Error(`Transcription failed (${res.status})`);
   return (await res.json()) as TranscriptionResult;
 }
+
+// ----- Admin panel (docs/11_Security.md 11.9) -----
+//
+// Every call here is admin-only on the server. The client guard in
+// `require-auth.ts` is convenience; these 403 without an admin token.
+
+export const adminOverview = () => apiRequest<AdminOverview>("/admin/overview");
+
+export const adminListUsers = (
+  params: {
+    q?: string;
+    role?: UserRole;
+    plan?: string;
+    suspended?: boolean;
+    limit?: number;
+    offset?: number;
+  } = {},
+) => apiRequest<AdminUserPage>("/admin/users", { query: params });
+
+export const adminUpdateUser = (userId: string, body: AdminUserUpdate) =>
+  apiRequest<AdminUser>(`/admin/users/${userId}`, { method: "PATCH", body });
+
+export const adminDeleteUser = (userId: string) =>
+  apiRequest<void>(`/admin/users/${userId}`, { method: "DELETE" });
+
+export const adminAiSpend = (days = 30, top = 10) =>
+  apiRequest<AiSpendSummary>("/admin/ai-spend", { query: { days, top } });
+
+export const adminListReports = (status: ReportStatus | null = "open", limit = 50) =>
+  apiRequest<AbuseReport[]>("/admin/reports", { query: { status, limit } });
+
+export const adminReviewReport = (reportId: string, body: ReportReview) =>
+  apiRequest<AbuseReport>(`/admin/reports/${reportId}`, { method: "PATCH", body });
+
+export const adminListBans = (limit = 100) =>
+  apiRequest<RoomBan[]>("/admin/bans", { query: { limit } });
+
+export const adminLiftBan = (banId: string) =>
+  apiRequest<void>(`/admin/bans/${banId}`, { method: "DELETE" });
+
+export const adminAudit = (limit = 100) =>
+  apiRequest<AuditEntry[]>("/admin/audit", { query: { limit } });
+
+/** File a report about another learner. Any signed-in user, not just admins. */
+export const reportUser = (body: ReportCreate) =>
+  apiRequest<AbuseReport>("/moderation/reports", { method: "POST", body });

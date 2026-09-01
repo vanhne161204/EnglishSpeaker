@@ -82,9 +82,9 @@ passwords thousands of times, and stops spam sign-ups.
 
 ### 2.4 Admin flag + admin gate — *authorization*
 
-**Change:** added an `is_admin` flag on users and a `require_admin` check on the
-content-management endpoints (create/edit/delete topics and documents). A username
-in `ADMIN_USERNAMES` becomes admin automatically.
+**Change:** added a `role` column on users (`user` | `admin`) and a
+`require_admin` check on the admin endpoints. Admin is granted deliberately with
+`python -m scripts.grant_admin <username>` — never derived from a username.
 **Why:** only you should be able to manage the app's learning content, not every
 user. *(Files:* `app/models/user.py`*,* `app/api/deps.py`*.)*
 
@@ -283,7 +283,7 @@ These live in `.env.prod` on the EC2:
 | `POSTGRES_USER/PASSWORD/DB` | The database login                                                   |
 | `DATABASE_URL`              | How the app connects to the database (`@db` = the container name)    |
 | `REDIS_URL`                 | How the app connects to Redis                                        |
-| `ADMIN_USERNAMES`           | Usernames that automatically become admins                           |
+| `ROOM_BAN_HOURS`            | How long a room owner's kick lasts (0 = permanent)                   |
 
 
 ---

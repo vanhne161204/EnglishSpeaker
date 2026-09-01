@@ -268,7 +268,9 @@ export type User = {
   id: string;
   display_name: string;
   username: string | null;
-  is_admin: boolean;
+  /** "user" | "admin". The server's `users.role` column — never derived from
+   *  the username, and never trusted from the client. */
+  role: UserRole;
   phone: string | null;
   level: string | null;
   interests: string | null;
@@ -499,4 +501,142 @@ export type TranscriptionResult = {
   text: string;
   language: string | null;
   provider: string;
+};
+
+// ----- Admin panel (docs/11_Security.md 11.9) -----
+
+/** Two roles, deliberately. A third would be a migration, not a rewrite. */
+export type UserRole = "user" | "admin";
+
+export type AdminUser = {
+  id: string;
+  username: string | null;
+  display_name: string;
+  role: UserRole;
+  plan: string;
+  level: string | null;
+  created_at: string;
+  suspended_at: string | null;
+  suspended_reason: string | null;
+  /** Activity, so a real learner is distinguishable from a drive-by signup. */
+  messages_sent: number;
+  lines_spoken: number;
+  /** One report is noise; several is a pattern. */
+  reports_against: number;
+};
+
+export type AdminUserPage = {
+  items: AdminUser[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type AdminUserUpdate = {
+  role?: UserRole;
+  plan?: PlanTier;
+  display_name?: string;
+  suspended?: boolean;
+  suspended_reason?: string | null;
+};
+
+// Money arrives as a decimal string, never a JS number: 0.1 + 0.2 is not 0.3,
+// and this is a bill.
+export type SpendByTask = { task: string; cost_usd: string; calls: number };
+
+export type SpendByUser = {
+  user_id: string;
+  username: string | null;
+  display_name: string;
+  cost_usd: string;
+  calls: number;
+};
+
+export type ModelHealth = {
+  model: string;
+  calls: number;
+  degraded: number;
+  failed: number;
+};
+
+export type AiSpendSummary = {
+  today_usd: string;
+  week_usd: string;
+  month_usd: string;
+  failed_24h: number;
+  by_task: SpendByTask[];
+  by_user: SpendByUser[];
+  health: ModelHealth[];
+};
+
+export type ReportReason = "harassment" | "inappropriate" | "spam" | "hate" | "other";
+export type ReportStatus = "open" | "resolved" | "dismissed";
+
+export type AbuseReport = {
+  id: string;
+  reporter_id: string | null;
+  reporter_name: string;
+  target_user_id: string | null;
+  target_name: string;
+  room_id: string | null;
+  reason: string;
+  detail: string | null;
+  quoted_text: string | null;
+  status: ReportStatus;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_note: string | null;
+  created_at: string;
+};
+
+export type ReportCreate = {
+  target_user_id: string;
+  room_id?: string | null;
+  reason: ReportReason;
+  detail?: string | null;
+  quoted_text?: string | null;
+};
+
+export type ReportReview = {
+  status: ReportStatus;
+  note?: string | null;
+  /** Deciding and acting are one motion, so they are one request. */
+  suspend_target?: boolean;
+  suspend_reason?: string | null;
+};
+
+export type RoomBan = {
+  id: string;
+  room_id: string;
+  room_title: string | null;
+  user_id: string;
+  user_name: string | null;
+  reason: string | null;
+  /** null = permanent. */
+  expires_at: string | null;
+  created_at: string;
+};
+
+export type AuditEntry = {
+  id: string;
+  actor_id: string | null;
+  actor_name: string;
+  action: string;
+  target_type: string;
+  target_id: string | null;
+  target_name: string;
+  detail: string | null;
+  created_at: string;
+};
+
+export type AdminOverview = {
+  total_users: number;
+  admins: number;
+  suspended: number;
+  new_users_7d: number;
+  open_reports: number;
+  active_bans: number;
+  spend_today_usd: string;
+  spend_month_usd: string;
+  topics_without_questions: number;
 };

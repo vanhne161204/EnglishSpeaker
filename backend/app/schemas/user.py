@@ -5,6 +5,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.models.enums import UserRole
+
 
 class UserCreate(BaseModel):
     display_name: str = Field(min_length=1, max_length=80)
@@ -25,7 +27,7 @@ class UserRead(BaseModel):
     id: uuid.UUID
     display_name: str
     username: str | None
-    is_admin: bool
+    role: UserRole
     phone: str | None
     level: str | None
     interests: str | None

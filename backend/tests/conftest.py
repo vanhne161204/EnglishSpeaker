@@ -21,11 +21,14 @@ from collections.abc import AsyncGenerator  # noqa: E402
 
 import pytest_asyncio  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy import select  # noqa: E402
 
 from app.core import rate_limit  # noqa: E402
 from app.db.base import Base  # noqa: E402
-from app.db.session import engine  # noqa: E402
+from app.db.session import AsyncSessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
+from app.models.enums import UserRole  # noqa: E402
+from app.models.user import User  # noqa: E402
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -51,13 +54,29 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
 async def admin_client(client: AsyncClient) -> AsyncGenerator[AsyncClient, None]:
     """``client`` authenticated as an admin.
 
-    The username ``admin`` is in the default ``ADMIN_USERNAMES`` allowlist, so the
-    account is granted admin on register — enough to reach the admin-only write
-    endpoints (create/update/delete topics and documents).
+    The role is granted **explicitly**, by writing the column. Registering with
+    the username "admin" no longer confers anything — that allowlist is exactly
+    what docs/11_Security.md §11.2 removed, and a fixture that relied on it would
+    quietly pass even if the behaviour came back.
     """
     resp = await client.post(
         "/api/v1/auth/register",
         json={"username": "admin", "password": "admin-password", "display_name": "Admin"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    async with AsyncSessionLocal() as session:
+        user = (
+            await session.execute(select(User).where(User.username == "admin"))
+        ).scalar_one()
+        user.role = UserRole.admin
+        await session.commit()
+
+    # Re-login so the token carries the new role claim (the server re-reads the
+    # role from the database on every request either way).
+    resp = await client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin", "password": "admin-password"},
     )
     assert resp.status_code == 200, resp.text
     client.headers["Authorization"] = f"Bearer {resp.json()['token']}"

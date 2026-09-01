@@ -4,6 +4,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
+from app.core.config import settings
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.core.security import hash_password, verify_password
 from app.models.enums import ConversationMode, RoomKind
@@ -11,6 +12,7 @@ from app.models.participant import RoomParticipant
 from app.models.room import Room
 from app.repositories.participant import ParticipantRepository
 from app.repositories.room import RoomRepository
+from app.repositories.room_ban import RoomBanRepository
 from app.repositories.user import UserRepository
 from app.schemas.moderation import ModerationAction
 from app.schemas.room import RoomCreate
@@ -23,10 +25,12 @@ class RoomService:
         rooms: RoomRepository,
         participants: ParticipantRepository,
         users: UserRepository,
+        bans: RoomBanRepository,
     ) -> None:
         self.rooms = rooms
         self.participants = participants
         self.users = users
+        self.bans = bans
 
     async def list_rooms(
         self,
@@ -69,7 +73,10 @@ class RoomService:
         room = await self.get_room(room_id)
 
         # A member the owner kicked cannot rejoin the same room (PRD §8.3).
-        if moderation.is_banned(room_id, user_id):
+        # Bans used to be a process-local dict, so a deploy cleared them and
+        # nothing could lift one (docs/11_Security.md Step 4). They now live in
+        # `room_bans`, survive restarts, and expire.
+        if await self.bans.is_banned(room_id, user_id):
             raise ForbiddenError("You were removed from this room", code="room_banned")
 
         user = await self.users.get(user_id)
@@ -140,5 +147,11 @@ class RoomService:
             if participant is not None:
                 participant.left_at = datetime.now(UTC)
                 room.participant_count = max(0, room.participant_count - 1)
-            moderation.ban(room_id, target_user_id)
+            await self.bans.upsert(
+                room_id,
+                target_user_id,
+                banned_by=owner_id,
+                reason="Removed by the room owner",
+                expires_at=moderation.default_expiry(settings.room_ban_hours),
+            )
         return room

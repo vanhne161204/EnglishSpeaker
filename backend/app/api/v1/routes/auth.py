@@ -24,7 +24,7 @@ async def register(
     service: AuthService = Depends(get_auth_service),
 ) -> AuthResult:
     user = await service.register(payload.username, payload.password, payload.display_name)
-    token = create_access_token(user.id, user.is_admin)
+    token = create_access_token(user.id, user.role)
     return AuthResult(user=UserRead.model_validate(user), token=token)
 
 
@@ -40,7 +40,7 @@ async def login(
     service: AuthService = Depends(get_auth_service),
 ) -> AuthResult:
     user = await service.login(payload.username, payload.password)
-    token = create_access_token(user.id, user.is_admin)
+    token = create_access_token(user.id, user.role)
     return AuthResult(user=UserRead.model_validate(user), token=token)
 
 

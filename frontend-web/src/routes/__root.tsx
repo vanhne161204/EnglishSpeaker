@@ -318,7 +318,7 @@ function AccountControl() {
             >
               My notes
             </Link>
-            {identity.is_admin && (
+            {identity.role === "admin" && (
               <Link
                 to="/admin"
                 onClick={() => setOpen(false)}
@@ -435,7 +435,7 @@ function AuthWatcher() {
       void router.navigate({ to: "/login", search: { next: pathname }, replace: true });
       return;
     }
-    if (isAdminPath(pathname) && !identity.is_admin) {
+    if (isAdminPath(pathname) && identity.role !== "admin") {
       void router.navigate({ to: "/", replace: true });
     }
   }, [hydrated, identity, pathname, router]);
@@ -446,7 +446,7 @@ function AuthWatcher() {
 function SiteFooter() {
   const identity = useIdentity();
   const hydrated = useHydrated();
-  const isAdmin = hydrated && !!identity?.is_admin;
+  const isAdmin = hydrated && identity?.role === "admin";
   return (
     <footer className="border-t border-border bg-cream mt-24">
       <div className="container-page py-14 grid gap-10 md:grid-cols-4">

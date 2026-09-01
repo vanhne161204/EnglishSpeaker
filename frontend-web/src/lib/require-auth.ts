@@ -27,7 +27,7 @@ import { currentUser } from "@/lib/identity";
  *  that call `requireAuth` — `<AuthWatcher>` reads this list. */
 const PROTECTED_PREFIXES = ["/rooms", "/warmup", "/match", "/notes", "/profile", "/admin"];
 
-/** Path prefixes that additionally need `is_admin`. */
+/** Path prefixes that additionally need the `admin` role. */
 const ADMIN_PREFIXES = ["/admin"];
 
 function matches(pathname: string, prefixes: string[]): boolean {
@@ -72,5 +72,5 @@ export function requireAdmin(pathname: string): void {
   if (!user?.token) throw redirect({ to: "/login", search: { next: pathname } });
   // Not an error page: an ordinary user reaching /admin has simply gone
   // somewhere that does not concern them.
-  if (!user.is_admin) throw redirect({ to: "/" });
+  if (user.role !== "admin") throw redirect({ to: "/" });
 }

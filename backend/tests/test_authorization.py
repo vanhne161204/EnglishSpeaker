@@ -117,7 +117,7 @@ async def test_a_token_for_a_deleted_user_is_rejected(user_client: AsyncClient) 
     """A signature alone is not enough — the account must still exist."""
     from app.core.security import create_access_token
 
-    ghost = create_access_token(uuid.uuid4(), is_admin=False)
+    ghost = create_access_token(uuid.uuid4())
     assert await authenticate_socket(ghost) is None
 
 

@@ -451,7 +451,12 @@ POSTGRES_DB=englishtalker
 DATABASE_URL=postgresql+asyncpg://englishtalker:<strong-password>@db:5432/englishtalker
 
 REDIS_URL=redis://redis:6379/0
-ADMIN_USERNAMES=["<your-admin-username>"]
+
+# How long an owner's kick keeps someone out of that room. 0 = permanent.
+ROOM_BAN_HOURS=24
+
+# NOTE: there is no ADMIN_USERNAMES setting. Admin comes from the `users.role`
+# column and is granted deliberately with `scripts/grant_admin.py` (see below).
 
 # --- AI (docs/18_AI_Provider_Architecture.md) ---
 # Set at least ONE key, or every AI feature serves a labelled demo stub.
@@ -524,7 +529,7 @@ Do this **once after** the DB container + `.env.prod` are ready (and after
 - [ ] `https://api.yourname.me/api/v1/health` → `200`
 - [ ] Cert is valid (padlock, no warning)
 - [ ] `https://yourname.me` loads the app
-- [ ] Register an account; the `ADMIN_USERNAMES` user gets the Admin link
+- [ ] Register an account, then grant it admin with `scripts/grant_admin.py` (see §11.9); the Admin link appears after the next page load
 - [ ] Mic works (needs HTTPS): warm-up STT + live-chat mic
 - [ ] Two browsers in a room see each other (roster) and can chat
 - [ ] Voice: test between two networks (wifi + mobile) — needs TURN

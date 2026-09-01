@@ -96,7 +96,7 @@ A lightweight learner profile. Login is **optional**: guests can use the app wit
 | `display_name` | string(80) | No | Name shown in rooms and UI. |
 | `username` | string(40) | Yes | Login handle. Unique when set. `NULL` for guests. |
 | `password_hash` | string(255) | Yes | bcrypt hash of the password. Never store plain text. `NULL` for guests. |
-| `is_admin` | boolean | No | Admin rights for managing topics and learning content. Set from `ADMIN_USERNAMES` on register/login — **not** a separate admin table. |
+| `role` | string | Yes (`user`) | `user` \| `admin`. The **only** source of admin authority — never derived from a username. Re-read from the database on every request. |
 | `phone` | string(32) | Yes | Legacy field. No longer used for login. Kept for old rows. |
 | `level` | string(40) | Yes | Self-reported English level (e.g. `beginner`, `intermediate`). |
 | `interests` | string(300) | Yes | Comma-separated interests (e.g. `travel,music`). Used for matching hints. |
@@ -104,7 +104,7 @@ A lightweight learner profile. Login is **optional**: guests can use the app wit
 | `created_at` | timestamptz | No | Row creation time. |
 | `updated_at` | timestamptz | No | Last update time. |
 
-**Admin note:** There is no pre-seeded admin user. Register or log in with a username in `ADMIN_USERNAMES` (default: `admin`) to get `is_admin = true`.
+**Admin note:** There is no pre-seeded admin user and no allowlist. Register normally, then grant the role explicitly: `python -m scripts.grant_admin <username>`. See docs/11_Security.md §11.9.
 
 ---
 
@@ -334,7 +334,7 @@ These live in `backend/app/core/config.py` and are loaded from environment varia
 | `database_url` | `DATABASE_URL` | SQLite file | Postgres URL in production. |
 | `auto_create_tables` | `AUTO_CREATE_TABLES` | `true` | Dev only — create tables on startup. Use Alembic in production. |
 | `seed_demo_data` | `SEED_DEMO_DATA` | `false` | Insert demo topics, rooms, users on startup. |
-| `admin_usernames` | `ADMIN_USERNAMES` | `["admin"]` | Usernames that get `is_admin = true` on register/login. |
+| `room_ban_hours` | `ROOM_BAN_HOURS` | `24` | How long an owner's kick keeps someone out of that room. `0` = permanent. |
 
 ### Auth and security
 

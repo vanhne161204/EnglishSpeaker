@@ -19,7 +19,7 @@ Two roles. Anyone not signed in can look, but cannot practise.
 |---|---|---|
 | **Anonymous** | Not signed in | Browse the marketing pages and the topic library. Nothing else. |
 | **User** | Registered with username + password | Rooms, warm-up, matching, transcripts, Coach Reports, notes, profile |
-| **Admin** | Username is in `ADMIN_USERNAMES` | Everything a User can, plus manage topics, categories, docs and questions |
+| **Admin** | `users.role = 'admin'` | Everything a User can, plus manage accounts, read the AI spend and safety queues, and manage topics, categories, docs and questions |
 
 ### Practice requires an account
 
@@ -64,7 +64,7 @@ Genuinely solid, and worth keeping:
 | Session token | **JWT, HS256**, signed with `SECRET_KEY`, carries `sub` / `adm` / `iat` / `exp` |
 | Token lifetime | 7 days (`ACCESS_TOKEN_EXPIRE_MINUTES`) |
 | Transport | `Authorization: Bearer <jwt>`, attached automatically by `app/lib/api/client.ts` |
-| Admin re-check | `require_admin` re-reads `is_admin` **from the database**, so revoking admin takes effect on the next request rather than when the token expires |
+| Admin re-check | `require_admin` re-reads `role` **from the database**, so revoking admin takes effect on the next request rather than when the token expires |
 | Username enumeration | Login returns one generic error for both "no such user" and "wrong password" |
 | Brute force | Rate limited per IP — register 5/10min, login 10/min |
 | Startup guard | The app **refuses to start** in production with the default `SECRET_KEY` |
@@ -272,19 +272,41 @@ user. That costs one column and one comparison, and gives you working logout,
 
 ## 11.7 Moderation and bans
 
-Kick currently bans **permanently**, in a **process-local in-memory dict**
-(`app/services/moderation.py`). Two problems:
+Bans live in the `room_bans` table (migration `0019_admin_panel`). Before that
+they were a process-local Python dict, which was wrong in three ways at once:
 
-- **No undo.** `clear_room()` exists but nothing calls it. A host who kicks by
-  mistake has locked that person out of that room forever.
-- **Silently inconsistent.** The ban evaporates on every deploy or restart, and
-  would not be shared across replicas.
+- **They died with the process.** This project deploys on every push to `main`,
+  so every deploy silently un-banned everyone.
+- **They never expired.** A host who mis-clicked locked that person out of that
+  room forever.
+- **Nothing could lift one.** `clear_room()` existed and nothing called it.
 
-**Fix:** give bans a duration (24 hours is generous for a practice app), store
-them in Redis with a TTL, and add `DELETE /rooms/{id}/bans/{user_id}` for the
-owner. Until then, the frontend at least tells a banned learner plainly what
-happened and sends them to another room rather than offering a Retry that cannot
-work.
+Now:
+
+| | Behaviour |
+|---|---|
+| Duration | `ROOM_BAN_HOURS`, default **24**. `0` means permanent. |
+| Expiry | `expires_at` on the row; `NULL` is permanent. Checked on join and on the WebSocket handshake. |
+| Lifting | `DELETE /admin/bans/{id}`, recorded in the audit log. |
+| Re-banning | Updates the existing row. A room never accumulates three bans on one person that each have to be lifted separately. |
+
+An expired ban is **not deleted** on read. The row stays as history — "this
+person was removed from this room once" is worth knowing — and a read path that
+writes is a read path that can deadlock.
+
+A kick is a time-out from one conversation, not a life sentence. That is why the
+default is a day rather than forever.
+
+### Reporting
+
+A learner can report another from the room (`POST /moderation/reports`); an admin
+reads and closes the queue. The reported text is **snapshotted** rather than
+referenced: a message can be deleted and a transcript purged by retention, but
+the report has to stay readable long enough for someone to act on it.
+
+There is no `reporter_id` in the request body. It comes from the session token —
+a client-supplied one would let anybody file reports under someone else's name,
+which turns a safety tool into a harassment tool.
 
 ---
 
@@ -320,7 +342,103 @@ work.
 
 ---
 
-## 11.9 Implementation plan
+## 11.9 The admin panel
+
+### The bug this replaced
+
+Admin authority came from a **username**. `ADMIN_USERNAMES` was an allowlist
+re-applied on **every login**, which was wrong in two independent ways:
+
+- **Anyone who registered the configured name got the keys.** The name was the
+  credential.
+- **The column was decoration.** Any grant or revoke made elsewhere was silently
+  undone the next time that person signed in — so an admin panel built on top of
+  it would have been a lie.
+
+Now there is exactly one answer to "is this person an admin":
+
+> **The `users.role` column.** Nothing derives it from a username, an
+> environment variable, or anything the client sends.
+
+`is_admin: bool` became `role: str` (`user` | `admin`, migration
+`0020_user_role`) so that a third role — a moderator who can clear the report
+queue but not touch billing — is a one-line migration rather than a second
+boolean and a rewrite of every call site.
+
+The token carries a `role` claim, but it is **convenience only**: every request
+re-reads the role from the database, so a stale token cannot keep rights after
+they are revoked, and a forged one proves nothing. There is a test for exactly
+that (`tests/test_user_role.py`).
+
+### Creating the first admin
+
+Deliberately, with a script — there is no allowlist and no "first to register
+wins":
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml     run --rm api python -m scripts.grant_admin <username>
+```
+
+`--revoke` demotes, `--list` shows who has it. The script refuses to remove the
+last admin, the same rule the panel enforces, so the recovery tool cannot become
+the way to lock everyone out.
+
+After the first admin exists, use the panel: it records who changed what in
+`admin_audit_log`, which a script run over SSH cannot.
+
+### Rails
+
+Each of these is a state the system could otherwise be put into and not get out
+of. All are enforced in `AdminService`, not in the UI:
+
+| Rule | Why |
+|---|---|
+| You cannot change your own role | One click and nobody can change it back. |
+| You cannot demote or delete the last admin | Recovery would need SSH and a restart. |
+| You cannot suspend or delete yourself | Same reasoning, less dramatic. |
+| Deleting an account requires typing its username | An "Are you sure?" that everyone clicks through protects nobody. |
+
+### Suspension
+
+`users.suspended_at` + `suspended_reason`. Checked in **`get_current_user`**, not
+only at login: tokens are stateless and last seven days, so a login-only check
+would leave a suspended account fully working for a week.
+
+A suspended login returns `403 account_suspended` with the reason, never
+`401 invalid_credentials` — telling someone their password is wrong when it is
+not sends them into a password-reset loop for a problem no reset can fix.
+
+### Audit log
+
+`admin_audit_log` is **append-only**. There is no update or delete method on the
+repository and no write endpoint; the API exposes reads only. The moment an audit
+log becomes editable it stops being evidence.
+
+Every privileged write is recorded. A no-op update — setting a field to the value
+it already has — is not, because it changed nothing, and a log full of non-events
+is a log nobody reads.
+
+Reads are generally not logged. The exception worth adding later is any read that
+exposes someone's private practice data: people say private things when
+practising a language, and the fact that an admin looked should be a record.
+
+### What the panel shows
+
+| Tab | Why it exists |
+|---|---|
+| **Users** | Search, promote, change plan, suspend, delete. |
+| **AI spend** | `ai_usage` already recorded `cost_usd` per call, but reading it meant SSH and SQL. A vendor dashboard gives one total; it cannot say which feature ate the budget or what one user costs, and those two answers set the price. |
+| **Safety** | The report queue and active bans. |
+| **Audit log** | Above. |
+| Categories / Topics / Questions | The original content management. |
+
+The overview strip carries two numbers that are calls to action rather than
+statistics: **open reports**, and **topics with no questions** — both look fine
+until somebody looks.
+
+---
+
+## 11.10 Implementation plan
 
 Ordered by risk. Steps 1–3 are the security fix and belong in one PR.
 
@@ -347,9 +465,11 @@ Ordered by risk. Steps 1–3 are the security fix and belong in one PR.
    delete, then make it non-null).
 2. Require auth on all `/notes` endpoints and filter on the caller.
 
-**Step 4 — Bans that expire (~half a day). 🟠**
+**Step 4 — Bans that expire. ✅ Done** (`0019_admin_panel`)
 
-Redis with a TTL, plus an unban endpoint for the owner.
+Postgres rather than Redis: the ban list is small, it is already joined against
+rooms and users to render the admin queue, and it must survive a restart —
+which is exactly what a cache is not for. See §11.7.
 
 **Step 5 — Real logout (~half a day).**
 
@@ -362,10 +482,13 @@ can lose something.
 
 ---
 
-## 11.10 What NOT to build
+## 11.11 What NOT to build
 
 - **Roles beyond Admin and User.** Two is right for the product today. Add a
-  `role` column when a third genuinely appears — not a second boolean.
+  `role` column when a third genuinely appears — not a second boolean. The admin
+  panel exposes the two as a `role` enum on the wire (`user` | `admin`) even
+  though storage is still a boolean, so adding a third is a migration rather than
+  a rewrite of every call site.
 - **OAuth / social login.** More surface area, and it does not solve the actual
   gaps in §11.4. Username and password is the correct choice at this size.
 - **A permissions framework.** With two roles, `require_admin` and "scope to the

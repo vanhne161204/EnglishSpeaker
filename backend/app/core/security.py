@@ -50,13 +50,18 @@ def verify_password(password: str, password_hash: str) -> bool:
 # forge a token by guessing a UUID — the previous, critical impersonation hole.
 
 
-def create_access_token(user_id: uuid.UUID | str, is_admin: bool) -> str:
-    """Create a signed, expiring session token for a user."""
+def create_access_token(user_id: uuid.UUID | str, role: str = "user") -> str:
+    """Create a signed, expiring session token for a user.
+
+    ``role`` is a **convenience claim only**. Every request re-reads the role
+    from the database (see ``deps.require_admin``), so a stale token cannot keep
+    admin rights after they are revoked, and a forged one proves nothing.
+    """
     now = datetime.now(UTC)
     expire = now + timedelta(minutes=settings.access_token_expire_minutes)
     payload = {
         "sub": str(user_id),  # subject = the user's id
-        "adm": bool(is_admin),  # convenience claim; authority is re-checked server-side
+        "role": str(role),  # convenience claim; authority is re-checked server-side
         "iat": int(now.timestamp()),
         "exp": int(expire.timestamp()),
     }

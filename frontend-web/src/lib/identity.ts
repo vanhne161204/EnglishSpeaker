@@ -27,7 +27,7 @@ const STORAGE_KEY = "et_user";
 // is set once the user registers or logs in.
 type StoredUser = Pick<
   User,
-  "id" | "display_name" | "level" | "interests" | "username" | "is_admin"
+  "id" | "display_name" | "level" | "interests" | "username" | "role"
 > & {
   mode?: ConversationMode;
   // Session JWT from register/login. The API client sends it as a Bearer token,
@@ -87,9 +87,12 @@ export function isLoggedIn(): boolean {
   return !!readStored()?.username;
 }
 
-/** Whether the current user is an admin (may manage topics/content). */
+/** Whether the current user is an admin (may manage topics/content).
+ *
+ *  A cached hint only. The API re-reads the role from the database on every
+ *  request, so a stale copy here grants nothing. */
 export function isAdmin(): boolean {
-  return !!readStored()?.is_admin;
+  return readStored()?.role === "admin";
 }
 
 /** Subscribe to identity changes (login / logout / profile save). */
@@ -168,7 +171,7 @@ export async function saveProfile(input: {
     id: updated.id,
     display_name: updated.display_name,
     username: updated.username,
-    is_admin: updated.is_admin,
+    role: updated.role,
     level: updated.level,
     interests: updated.interests,
     mode: input.mode ?? existing.mode,
@@ -186,7 +189,7 @@ export function loginWithAuth(result: AuthResult): StoredUser {
     id: result.user.id,
     display_name: result.user.display_name,
     username: result.user.username,
-    is_admin: result.user.is_admin,
+    role: result.user.role,
     level: result.user.level,
     interests: result.user.interests,
     mode: prev?.mode,

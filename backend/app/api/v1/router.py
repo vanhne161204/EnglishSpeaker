@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.routes import (
+    admin,
     assist,
     auth,
     categories,
@@ -10,6 +11,7 @@ from app.api.v1.routes import (
     feedback,
     health,
     match,
+    moderation,
     notes,
     questions,
     reports,
@@ -25,6 +27,7 @@ from app.api.v1.routes import (
 
 api_router = APIRouter()
 api_router.include_router(health.router)
+api_router.include_router(admin.router)
 api_router.include_router(auth.router)
 api_router.include_router(categories.router)
 api_router.include_router(topics.router)
@@ -40,5 +43,6 @@ api_router.include_router(match.router)
 api_router.include_router(assist.router)
 api_router.include_router(feedback.router)
 api_router.include_router(reports.router)
+api_router.include_router(moderation.router)
 api_router.include_router(ws.router)
 api_router.include_router(voice_ws.router)

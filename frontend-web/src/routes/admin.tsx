@@ -2,7 +2,7 @@ import { requireAdmin } from "@/lib/require-auth";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { useIdentity } from "@/lib/identity";
+import { useHydrated, useIdentity } from "@/lib/identity";
 import {
   ApiError,
   createAnswerTemplate,
@@ -37,6 +37,11 @@ import {
   type Topic,
 } from "@/lib/api";
 import { levelLabel, LEVELS } from "@/lib/presentation";
+import { AuditPanel } from "@/components/admin/audit-panel";
+import { OverviewStrip } from "@/components/admin/overview-strip";
+import { SafetyPanel } from "@/components/admin/safety-panel";
+import { SpendPanel } from "@/components/admin/spend-panel";
+import { UsersManager } from "@/components/admin/users-manager";
 import { ErrorState } from "./topics.index";
 
 export const Route = createFileRoute("/admin")({
@@ -53,14 +58,18 @@ export const Route = createFileRoute("/admin")({
   component: AdminPage,
 });
 
-const TABS = ["categories", "topics", "content"] as const;
+// Running the product comes before editing its content, so people and money lead.
+const TABS = ["users", "spend", "safety", "categories", "topics", "content", "audit"] as const;
 type Tab = (typeof TABS)[number];
 
-/** Tab labels. "content" leads with the job admins actually do most: questions. */
 const TAB_LABELS: Record<Tab, string> = {
+  users: "Users",
+  spend: "AI spend",
+  safety: "Safety",
   categories: "Categories",
   topics: "Topics",
   content: "Questions & answers",
+  audit: "Audit log",
 };
 
 /** Section types, with a plain-English hint about what each one holds (PRD §8.2). */
@@ -76,12 +85,24 @@ const STATUSES: readonly ContentStatus[] = ["draft", "published", "archived"];
 
 function AdminPage() {
   const identity = useIdentity();
-  const [tab, setTab] = useState<Tab>("topics");
+  const hydrated = useHydrated();
+  const [tab, setTab] = useState<Tab>("users");
+
+  // Identity lives in localStorage, which the server cannot read, so the first
+  // paint knows nothing. Rendering "You don't have access" for that frame shows
+  // a real admin an accusation before showing them the page — wait instead.
+  if (!hydrated) {
+    return (
+      <section className="container-page py-24">
+        <div className="mx-auto h-40 max-w-md animate-pulse rounded-4xl border border-border bg-card" />
+      </section>
+    );
+  }
 
   // Authorization gate: only admins may manage content. The backend also
   // enforces this (require_admin), so this is the friendly first line, not the
-  // only one. `identity` is null during SSR/first paint — treat as not-admin.
-  if (!identity?.is_admin) {
+  // only one.
+  if (identity?.role !== "admin") {
     return <AdminForbidden loggedIn={!!identity?.username} />;
   }
 
@@ -89,18 +110,22 @@ function AdminPage() {
     <>
       <section className="container-page pt-12 pb-4">
         <span className="chip">Admin</span>
-        <h1 className="mt-4 text-4xl sm:text-5xl text-ink">Content management</h1>
+        <h1 className="mt-4 text-4xl sm:text-5xl text-ink">Admin</h1>
         <p className="mt-3 max-w-2xl text-muted-foreground">
-          Group topics into categories, create the topics learners practice, then give each topic a
-          few questions with a sample answer. Those questions show up in the room and in Warm-up,
-          and the AI coach uses them to ground its suggestions (PRD §8.1, §8.2).
+          Manage accounts, watch what the AI costs, handle reports, and keep the learning content in
+          shape.
         </p>
-        <div className="mt-6 inline-flex rounded-full border border-border bg-card p-1">
+
+        <div className="mt-6">
+          <OverviewStrip onOpenSafety={() => setTab("safety")} />
+        </div>
+
+        <div className="mt-6 inline-flex flex-wrap gap-1 rounded-3xl border border-border bg-card p-1">
           {TABS.map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`rounded-full px-5 py-2 text-sm font-medium ${tab === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              className={`rounded-full px-4 py-2 text-sm font-medium ${tab === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
             >
               {TAB_LABELS[t]}
             </button>
@@ -109,9 +134,13 @@ function AdminPage() {
       </section>
 
       <section className="container-page py-6">
+        {tab === "users" && <UsersManager />}
+        {tab === "spend" && <SpendPanel />}
+        {tab === "safety" && <SafetyPanel />}
         {tab === "categories" && <CategoriesManager />}
         {tab === "topics" && <TopicsManager />}
         {tab === "content" && <ContentManager />}
+        {tab === "audit" && <AuditPanel />}
       </section>
     </>
   );
