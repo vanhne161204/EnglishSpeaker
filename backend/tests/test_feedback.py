@@ -14,6 +14,7 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 
 from app.ai.errors import ProviderTimeout
@@ -21,7 +22,8 @@ from app.ai.metering import BudgetExceeded
 from app.ai.providers.stub import FakeProvider
 from app.ai.routing import AiTask, get_route
 from app.db.session import AsyncSessionLocal
-from app.models.enums import PlanTier
+from app.models.enums import ConversationMode, PlanTier
+from app.models.room import Room
 from app.models.transcript import TranscriptSegment
 from app.repositories.feedback import FeedbackRepository
 from app.schemas.feedback import FeedbackBatch, GrammarError, SentenceVerdict
@@ -38,24 +40,59 @@ from app.services.feedback import (
 ROUTE = get_route(AiTask.sentence_check, PlanTier.free)
 
 
-def _segment(text: str, room_id=None, user_id=None) -> TranscriptSegment:
+def _plain(text: str) -> TranscriptSegment:
+    """An in-memory segment, for tests that only exercise filtering and batching.
+
+    Anything that WRITES a feedback row needs `make_segment` instead: the row
+    stores `segment_id` and `room_id`, so an invented id points at nothing.
+    """
     return TranscriptSegment(
         id=uuid.uuid4(),
-        room_id=room_id or uuid.uuid4(),
-        user_id=user_id or uuid.uuid4(),
+        room_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
         speaker_name="Lan",
         text=text,
         spoken_at=datetime.now(UTC),
     )
 
 
+@pytest_asyncio.fixture
+async def make_segment(make_user):
+    """A transcript segment that really exists in the database.
+
+    `SentenceFeedback` stores `segment_id` and `room_id`, so an in-memory segment
+    with an invented id produces a row pointing at nothing. Postgres always
+    rejected that; SQLite only started to once foreign keys were enforced (see
+    `app/db/session.py`). Persisting the segment is what production does.
+    """
+    async with AsyncSessionLocal() as session:
+        owner = await make_user("Lan")
+        room = Room(title="Test room", mode=ConversationMode.normal, owner_id=owner)
+        session.add(room)
+        await session.commit()
+        room_id, user_id = room.id, owner
+
+    async def _make(text: str, room_id_=None, user_id_=None) -> TranscriptSegment:
+        segment = TranscriptSegment(
+            room_id=room_id_ or room_id,
+            user_id=user_id_ or user_id,
+            speaker_name="Lan",
+            text=text,
+            spoken_at=datetime.now(UTC),
+        )
+        async with AsyncSessionLocal() as session:
+            session.add(segment)
+            await session.commit()
+        return segment
+
+    return _make
+
+
 def _verdict(index: int, *, wrong: bool = True) -> SentenceVerdict:
     return SentenceVerdict(
         index=index,
         errors=(
-            [GrammarError(wrong="go", right="went", kind="verb tense", why="past")]
-            if wrong
-            else []
+            [GrammarError(wrong="go", right="went", kind="verb tense", why="past")] if wrong else []
         ),
         vocab=[],
         is_correct=not wrong,
@@ -110,11 +147,18 @@ def test_normalising_makes_the_same_sentence_hash_the_same() -> None:
 def test_the_filter_removes_roughly_half_a_real_session() -> None:
     """The §10.3.3 claim that drives the cost model."""
     session = [
-        "yeah", "I went to Da Nang last weekend.", "ok", "It was really beautiful",
-        "me too", "We stayed near the beach for three days", "right",
-        "The food there is much better than in my city", "I think so", "sure",
+        "yeah",
+        "I went to Da Nang last weekend.",
+        "ok",
+        "It was really beautiful",
+        "me too",
+        "We stayed near the beach for three days",
+        "right",
+        "The food there is much better than in my city",
+        "I think so",
+        "sure",
     ]
-    kept = select_segments([_segment(t) for t in session])
+    kept = select_segments([_plain(t) for t in session])
     assert len(kept) == 4  # 10 in, 4 worth paying for
 
 
@@ -123,15 +167,15 @@ def test_the_filter_removes_roughly_half_a_real_session() -> None:
 
 def test_sentences_are_batched_not_sent_one_by_one() -> None:
     """60 sentences must become 3 calls, not 60."""
-    segments = [_segment(f"This is sentence number {i} of the session") for i in range(60)]
+    segments = [_plain(f"This is sentence number {i} of the session") for i in range(60)]
     batches = list(chunk(segments))
     assert len(batches) == 3
     assert all(len(b) <= BATCH_SIZE for b in batches)
 
 
-async def test_one_api_call_covers_a_whole_batch() -> None:
-    user_id = uuid.uuid4()
-    segments = [_segment(f"I go to the shop on day {i} every week") for i in range(5)]
+async def test_one_api_call_covers_a_whole_batch(make_user, make_segment) -> None:
+    user_id = await make_user()
+    segments = [await make_segment(f"I go to the shop on day {i} every week") for i in range(5)]
     provider = _provider(5)
 
     async with AsyncSessionLocal() as session:
@@ -146,9 +190,9 @@ async def test_one_api_call_covers_a_whole_batch() -> None:
 # --- the hash cache (§10.3.3) --------------------------------------------
 
 
-async def test_a_sentence_already_graded_is_not_paid_for_twice() -> None:
-    user_id = uuid.uuid4()
-    segments = [_segment("I go to the market every Sunday morning")]
+async def test_a_sentence_already_graded_is_not_paid_for_twice(make_user, make_segment) -> None:
+    user_id = await make_user()
+    segments = [await make_segment("I go to the market every Sunday morning")]
 
     async with AsyncSessionLocal() as session:
         service = FeedbackService(_provider(1), ROUTE, FeedbackRepository(session))
@@ -159,27 +203,31 @@ async def test_a_sentence_already_graded_is_not_paid_for_twice() -> None:
     repeat = _provider(1)
     async with AsyncSessionLocal() as session:
         service = FeedbackService(repeat, ROUTE, FeedbackRepository(session))
-        rows = await service.assess(user_id, [_segment("I go to the market every Sunday morning")])
+        rows = await service.assess(
+            user_id, [await make_segment("I go to the market every Sunday morning")]
+        )
         await session.commit()
 
     assert repeat.calls == []  # no API call at all
     assert len(rows) == 1  # but the learner still gets their feedback
 
 
-async def test_the_cache_is_scoped_to_one_learner() -> None:
+async def test_the_cache_is_scoped_to_one_learner(make_user, make_segment) -> None:
     """Feedback is phrased for a learner's level, so sharing it across users
     would hand a B2 speaker advice written for an A2 one."""
     text = "I go to the market every Sunday morning"
+    first, second = await make_user("First"), await make_user("Second")
+
     async with AsyncSessionLocal() as session:
         await FeedbackService(_provider(1), ROUTE, FeedbackRepository(session)).assess(
-            uuid.uuid4(), [_segment(text)]
+            first, [await make_segment(text)]
         )
         await session.commit()
 
     other = _provider(1)
     async with AsyncSessionLocal() as session:
         await FeedbackService(other, ROUTE, FeedbackRepository(session)).assess(
-            uuid.uuid4(), [_segment(text)]
+            second, [await make_segment(text)]
         )
         await session.commit()
 
@@ -189,12 +237,12 @@ async def test_the_cache_is_scoped_to_one_learner() -> None:
 # --- correctness ----------------------------------------------------------
 
 
-async def test_the_learners_level_reaches_the_prompt() -> None:
+async def test_the_learners_level_reaches_the_prompt(make_user, make_segment) -> None:
     provider = _provider(1)
     async with AsyncSessionLocal() as session:
         service = FeedbackService(provider, ROUTE, FeedbackRepository(session))
         await service.assess(
-            uuid.uuid4(), [_segment("I go there every single day")], level="advanced"
+            await make_user(), [await make_segment("I go there every single day")], level="advanced"
         )
         await session.commit()
 
@@ -202,34 +250,43 @@ async def test_the_learners_level_reaches_the_prompt() -> None:
     assert "C1" in provider.calls[0].system
 
 
-async def test_the_sentences_are_numbered_so_verdicts_can_be_matched_back() -> None:
+async def test_the_sentences_are_numbered_so_verdicts_can_be_matched_back(
+    make_user, make_segment
+) -> None:
     provider = _provider(2)
-    segments = [_segment("First full sentence here"), _segment("Second full sentence here")]
+    segments = [
+        await make_segment("First full sentence here"),
+        await make_segment("Second full sentence here"),
+    ]
     async with AsyncSessionLocal() as session:
         service = FeedbackService(provider, ROUTE, FeedbackRepository(session))
-        await service.assess(uuid.uuid4(), segments)
+        await service.assess(await make_user(), segments)
         await session.commit()
 
     assert "0. First full sentence here" in provider.calls[0].user
     assert "1. Second full sentence here" in provider.calls[0].user
 
 
-async def test_an_out_of_range_index_is_dropped_not_mis_attached() -> None:
+async def test_an_out_of_range_index_is_dropped_not_mis_attached(make_user, make_segment) -> None:
     """A shifted index would attach feedback to the wrong sentence — worse than
     no feedback, because the learner would 'correct' something they said fine."""
     bad = FakeProvider(parsed=FeedbackBatch(items=[_verdict(0), _verdict(99)]))
     async with AsyncSessionLocal() as session:
         service = FeedbackService(bad, ROUTE, FeedbackRepository(session))
-        rows = await service.assess(uuid.uuid4(), [_segment("Only one sentence here today")])
+        rows = await service.assess(
+            await make_user(), [await make_segment("Only one sentence here today")]
+        )
         await session.commit()
 
     assert len(rows) == 1
 
 
-async def test_the_stored_row_carries_which_model_produced_it() -> None:
+async def test_the_stored_row_carries_which_model_produced_it(make_user, make_segment) -> None:
     async with AsyncSessionLocal() as session:
         service = FeedbackService(_provider(1), ROUTE, FeedbackRepository(session))
-        rows = await service.assess(uuid.uuid4(), [_segment("I go there every single day")])
+        rows = await service.assess(
+            await make_user(), [await make_segment("I go there every single day")]
+        )
         await session.commit()
 
     assert rows[0].model  # needed to answer "why was this feedback poor?"
@@ -238,43 +295,55 @@ async def test_the_stored_row_carries_which_model_produced_it() -> None:
 # --- degradation ----------------------------------------------------------
 
 
-async def test_a_provider_failure_returns_what_was_gathered_not_an_error() -> None:
+async def test_a_provider_failure_returns_what_was_gathered_not_an_error(
+    make_user, make_segment
+) -> None:
     async with AsyncSessionLocal() as session:
         service = FeedbackService(
             FakeProvider(raises=ProviderTimeout("fake")), ROUTE, FeedbackRepository(session)
         )
-        rows = await service.assess(uuid.uuid4(), [_segment("I go there every single day")])
+        rows = await service.assess(
+            await make_user(), [await make_segment("I go there every single day")]
+        )
         await session.commit()
     assert rows == []
 
 
-async def test_a_spend_cap_stops_cleanly() -> None:
+async def test_a_spend_cap_stops_cleanly(make_user, make_segment) -> None:
     async with AsyncSessionLocal() as session:
         service = FeedbackService(
             FakeProvider(raises=BudgetExceeded("budget", "capped")),
             ROUTE,
             FeedbackRepository(session),
         )
-        rows = await service.assess(uuid.uuid4(), [_segment("I go there every single day")])
+        rows = await service.assess(
+            await make_user(), [await make_segment("I go there every single day")]
+        )
         await session.commit()
     assert rows == []
 
 
-async def test_a_provider_with_no_structured_output_does_not_store_junk() -> None:
+async def test_a_provider_with_no_structured_output_does_not_store_junk(
+    make_user, make_segment
+) -> None:
     """The stub cannot invent a schema instance; storing nothing beats storing
     a row that claims the learner's English was assessed when it wasn't."""
     async with AsyncSessionLocal() as session:
         service = FeedbackService(FakeProvider(text="hi"), ROUTE, FeedbackRepository(session))
-        rows = await service.assess(uuid.uuid4(), [_segment("I go there every single day")])
+        rows = await service.assess(
+            await make_user(), [await make_segment("I go there every single day")]
+        )
         await session.commit()
     assert rows == []
 
 
-async def test_nothing_gradeable_costs_nothing() -> None:
+async def test_nothing_gradeable_costs_nothing(make_user, make_segment) -> None:
     provider = _provider(0)
     async with AsyncSessionLocal() as session:
         service = FeedbackService(provider, ROUTE, FeedbackRepository(session))
-        rows = await service.assess(uuid.uuid4(), [_segment("yeah"), _segment("ok")])
+        rows = await service.assess(
+            await make_user(), [await make_segment("yeah"), await make_segment("ok")]
+        )
     assert rows == []
     assert provider.calls == []
 
@@ -313,7 +382,9 @@ async def test_assessing_a_session_with_no_speech_says_so(client: AsyncClient) -
     assert "didn't say anything" in body["message"].lower()
 
 
-async def test_the_summary_counts_repeated_mistakes(client: AsyncClient) -> None:
+async def test_the_summary_counts_repeated_mistakes(
+    client: AsyncClient, make_user, make_segment
+) -> None:
     """The view a learner actually returns for — and it costs no AI call."""
     auth = (
         await client.post(
@@ -328,9 +399,9 @@ async def test_the_summary_counts_repeated_mistakes(client: AsyncClient) -> None
         await service.assess(
             user_id,
             [
-                _segment("I go to the shop yesterday morning"),
-                _segment("She go to the park last night"),
-                _segment("They go to the beach last summer"),
+                await make_segment("I go to the shop yesterday morning"),
+                await make_segment("She go to the park last night"),
+                await make_segment("They go to the beach last summer"),
             ],
         )
         await session.commit()

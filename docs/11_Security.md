@@ -160,6 +160,7 @@ endpoint not on this list is a bug.
 | `POST /rooms` (create) | ❌ | ✅ | ✅ | Owner = **token**, never the body |
 | `POST /rooms/{id}/join`, `/leave` | ❌ | ✅ | ✅ | Actor = token |
 | `POST /rooms/{id}/moderate` | ❌ | 🔒 | 🔒 | **Owner of that room only**, from token |
+| `DELETE /rooms/{id}` | ❌ | 🔒 | ✅ | **Owner of that room, or any admin.** Both checked against the database; an admin deleting someone else's room is audited |
 | `WS /ws/rooms/{id}`, `/ws/voice/{id}` | ❌ | ✅ | ✅ | Identity from the token, never a query param |
 | `POST /assist`, `/translate`, `/transcribe` | ❌ | ✅ | ✅ | Every AI call is attributable and capped |
 | `GET /transcripts/rooms/{id}` | ❌ | ✅ | ✅ | Members of that room |
@@ -296,6 +297,36 @@ writes is a read path that can deadlock.
 
 A kick is a time-out from one conversation, not a life sentence. That is why the
 default is a day rather than forever.
+
+### Deleting a room
+
+Permitted for the room's owner and for any admin. A room created by Match has
+**no owner**, so only an admin can remove it — nobody inherits one by being the
+first to ask.
+
+It is a real delete, not a close, and the boundary of what goes with it is
+deliberate:
+
+| Goes | Survives |
+|---|---|
+| Chat messages, transcript segments, participants, bans | Coach reports, sentence feedback, AI usage rows |
+
+The surviving rows keep their data with a **NULL room**. They are the learner's
+own record of their practice, and losing those to somebody else's tidy-up would
+be wrong. The room's *content* belongs to the room; a learner's *assessment of
+themselves* does not.
+
+Anyone still connected gets a `room_closed` frame over the socket and is sent
+back to the room list. Without it the page stays open and every request starts
+404ing, which reads as the app being broken rather than the room being gone.
+
+**A note on cascades.** These rules are expressed as `ondelete` clauses in the
+schema, and SQLite ignores every one of them unless `PRAGMA foreign_keys=ON` is
+set per connection — which it now is (`app/db/session.py`). Before that, dev and
+the test suite behaved *differently from production*: cascades silently did not
+fire, so a wrong `ondelete` could have survived for months with every test green.
+Turning it on immediately exposed 17 tests that were persisting rows against
+invented user ids Postgres would always have rejected.
 
 ### Reporting
 

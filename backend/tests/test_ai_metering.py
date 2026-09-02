@@ -79,9 +79,7 @@ def test_premium_gets_a_stronger_model_than_free_for_reports() -> None:
 def test_ai_routes_env_override_patches_one_field_only(monkeypatch) -> None:
     from app.core import config
 
-    monkeypatch.setattr(
-        config.settings, "ai_routes", '{"rescue:free": {"timeout_s": 9.5}}'
-    )
+    monkeypatch.setattr(config.settings, "ai_routes", '{"rescue:free": {"timeout_s": 9.5}}')
     route = get_route(AiTask.rescue, PlanTier.free)
     assert route.timeout_s == 9.5
     # Untouched fields keep their defaults — a patch is not a replacement.
@@ -160,8 +158,8 @@ async def test_under_the_cap_the_call_goes_through() -> None:
     assert (await guard.generate(_request())).text == "ok"
 
 
-async def test_the_daily_cap_is_enforced_per_user_and_task() -> None:
-    user_id = uuid.uuid4()
+async def test_the_daily_cap_is_enforced_per_user_and_task(make_user) -> None:
+    user_id = await make_user()
     cap = DAILY_CALL_CAPS[(AiTask.rescue, PlanTier.free)]
     await _seed_calls(user_id, AiTask.rescue, cap)
 
@@ -172,17 +170,17 @@ async def test_the_daily_cap_is_enforced_per_user_and_task() -> None:
     assert "today" in str(excinfo.value)
 
 
-async def test_one_users_spend_does_not_cap_another() -> None:
-    heavy, light = uuid.uuid4(), uuid.uuid4()
+async def test_one_users_spend_does_not_cap_another(make_user) -> None:
+    heavy, light = await make_user("Heavy"), await make_user("Light")
     await _seed_calls(heavy, AiTask.rescue, DAILY_CALL_CAPS[(AiTask.rescue, PlanTier.free)])
 
     guard = BudgetGuard(FakeProvider(), AiTask.rescue, PlanTier.free, light)
     assert (await guard.generate(_request())).text == "ok"
 
 
-async def test_caps_are_per_task_not_shared() -> None:
+async def test_caps_are_per_task_not_shared(make_user) -> None:
     """Using up rescue taps must not lock the learner out of feedback too."""
-    user_id = uuid.uuid4()
+    user_id = await make_user()
     await _seed_calls(user_id, AiTask.rescue, DAILY_CALL_CAPS[(AiTask.rescue, PlanTier.free)])
 
     guard = BudgetGuard(FakeProvider(), AiTask.ielts_report, PlanTier.free, user_id)
@@ -191,10 +189,7 @@ async def test_caps_are_per_task_not_shared() -> None:
 
 async def test_premium_gets_a_higher_cap_than_free() -> None:
     for task in LLM_TASKS:
-        assert (
-            DAILY_CALL_CAPS[(task, PlanTier.premium)]
-            > DAILY_CALL_CAPS[(task, PlanTier.free)]
-        )
+        assert DAILY_CALL_CAPS[(task, PlanTier.premium)] > DAILY_CALL_CAPS[(task, PlanTier.free)]
 
 
 async def test_the_org_monthly_ceiling_stops_everyone(monkeypatch) -> None:

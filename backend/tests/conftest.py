@@ -5,6 +5,7 @@ the suite never touches (and ``drop_all``s!) the dev database the local server u
 """
 
 import os
+import uuid
 
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./test_englishtalker.db")
 # Tests manage their own schema; never auto-seed demo data into the test DB.
@@ -66,9 +67,7 @@ async def admin_client(client: AsyncClient) -> AsyncGenerator[AsyncClient, None]
     assert resp.status_code == 200, resp.text
 
     async with AsyncSessionLocal() as session:
-        user = (
-            await session.execute(select(User).where(User.username == "admin"))
-        ).scalar_one()
+        user = (await session.execute(select(User).where(User.username == "admin"))).scalar_one()
         user.role = UserRole.admin
         await session.commit()
 
@@ -116,3 +115,25 @@ async def other_client() -> AsyncGenerator[AsyncClient, None]:
         assert resp.status_code == 200, resp.text
         ac.headers["Authorization"] = f"Bearer {resp.json()['token']}"
         yield ac
+
+
+@pytest_asyncio.fixture
+async def make_user():
+    """Create a real ``users`` row and return its id.
+
+    Needed because foreign keys are now enforced on SQLite too (see
+    ``app/db/session.py``). Tests used to invent a UUID for ``user_id`` and
+    persist rows against it; Postgres would always have rejected that, so those
+    tests were passing on behaviour production never had.
+
+    Returns an ``async`` callable so a test can make as many as it needs.
+    """
+
+    async def _make(display_name: str = "Learner") -> uuid.UUID:
+        async with AsyncSessionLocal() as session:
+            user = User(display_name=display_name)
+            session.add(user)
+            await session.commit()
+            return user.id
+
+    return _make

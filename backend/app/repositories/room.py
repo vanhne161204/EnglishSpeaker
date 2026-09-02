@@ -62,6 +62,12 @@ class RoomRepository:
     async def count(self) -> int:
         return await self.session.scalar(select(func.count()).select_from(Room)) or 0
 
+    async def delete(self, room: Room) -> None:
+        """Remove a room. Cascades to its messages, participants, transcript and
+        bans; reports, feedback and AI usage keep their rows with a NULL room."""
+        await self.session.delete(room)
+        await self.session.flush()
+
     async def add(self, room: Room) -> Room:
         self.session.add(room)
         await self.session.flush()

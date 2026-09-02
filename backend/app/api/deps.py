@@ -59,6 +59,7 @@ def get_room_service(session: AsyncSession = Depends(get_session)) -> RoomServic
         ParticipantRepository(session),
         UserRepository(session),
         RoomBanRepository(session),
+        AuditRepository(session),
     )
 
 

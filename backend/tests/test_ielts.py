@@ -173,8 +173,7 @@ def test_an_unmeasurable_rate_is_reported_as_unmeasurable() -> None:
     pronunciation unscored."""
     me = uuid.uuid4()
     burst = [
-        _seg("a really long sentence with many words in it here", me, i * 0.01)
-        for i in range(10)
+        _seg("a really long sentence with many words in it here", me, i * 0.01) for i in range(10)
     ]
     m = speech_metrics.compute(burst)
     assert m.rate_is_reliable is False
@@ -272,8 +271,8 @@ def _long_session(me: uuid.UUID) -> list[TranscriptSegment]:
     ]
 
 
-async def test_a_report_is_built_and_stored() -> None:
-    me = uuid.uuid4()
+async def test_a_report_is_built_and_stored(make_user) -> None:
+    me = await make_user()
     provider = FakeProvider(parsed=_report((6.0, 6.5, 6.0)))
 
     async with AsyncSessionLocal() as session:
@@ -288,9 +287,9 @@ async def test_a_report_is_built_and_stored() -> None:
     assert len(report.blockers) == 1
 
 
-async def test_pronunciation_is_never_scored_and_the_overall_says_so() -> None:
+async def test_pronunciation_is_never_scored_and_the_overall_says_so(make_user) -> None:
     """No model accepts audio. A number here would be invented (§10.3.11)."""
-    me = uuid.uuid4()
+    me = await make_user()
     async with AsyncSessionLocal() as session:
         service = IeltsService(
             FakeProvider(parsed=_report()), ROUTE, SessionReportRepository(session)
@@ -303,8 +302,8 @@ async def test_pronunciation_is_never_scored_and_the_overall_says_so() -> None:
     assert report.overall_is_estimate is True
 
 
-async def test_the_measured_numbers_reach_the_model() -> None:
-    me = uuid.uuid4()
+async def test_the_measured_numbers_reach_the_model(make_user) -> None:
+    me = await make_user()
     provider = FakeProvider(parsed=_report())
     async with AsyncSessionLocal() as session:
         service = IeltsService(provider, ROUTE, SessionReportRepository(session))
@@ -342,8 +341,8 @@ async def test_partner_speech_does_not_count_toward_my_word_floor() -> None:
             await service.build_report(me, segments)
 
 
-async def test_the_stored_report_never_contains_a_partner_quote() -> None:
-    me, partner = uuid.uuid4(), uuid.uuid4()
+async def test_the_stored_report_never_contains_a_partner_quote(make_user) -> None:
+    me, partner = await make_user("Me"), await make_user("Partner")
     segments = _long_session(me) + [_seg("What did you do there?", partner, 100)]
     leaky = FakeProvider(parsed=_report(evidence=["What did you do there?"]))
 
@@ -389,8 +388,8 @@ async def test_a_spend_cap_surfaces_as_unavailable() -> None:
             await service.build_report(me, _long_session(me))
 
 
-async def test_a_model_band_outside_the_scale_is_clamped() -> None:
-    me = uuid.uuid4()
+async def test_a_model_band_outside_the_scale_is_clamped(make_user) -> None:
+    me = await make_user()
     async with AsyncSessionLocal() as session:
         service = IeltsService(
             FakeProvider(parsed=_report((99.0, 6.0, 6.0))),
@@ -402,16 +401,14 @@ async def test_a_model_band_outside_the_scale_is_clamped() -> None:
     assert Decimal(str(report.band_fluency)) == Decimal("9")
 
 
-async def test_the_mode_is_recorded_so_the_ui_can_be_honest() -> None:
+async def test_the_mode_is_recorded_so_the_ui_can_be_honest(make_user) -> None:
     """A free-conversation band is an estimate; a cue-card band is meaningful."""
-    me = uuid.uuid4()
+    me = await make_user()
     async with AsyncSessionLocal() as session:
         service = IeltsService(
             FakeProvider(parsed=_report()), ROUTE, SessionReportRepository(session)
         )
-        report = await service.build_report(
-            me, _long_session(me), mode=ReportMode.ielts_part2
-        )
+        report = await service.build_report(me, _long_session(me), mode=ReportMode.ielts_part2)
         await session.commit()
     assert report.mode == "ielts_part2"
     assert ReportMode.ielts_part2.is_exam_like
@@ -474,9 +471,7 @@ def test_every_calibration_transcript_clears_the_word_floor() -> None:
     from app.services.ielts import MIN_WORDS_FOR_A_BAND
 
     for case in _calibration_cases():
-        words = sum(
-            len(t["text"].split()) for t in case["turns"] if t["who"] == "learner"
-        )
+        words = sum(len(t["text"].split()) for t in case["turns"] if t["who"] == "learner")
         assert words > MIN_WORDS_FOR_A_BAND, f"{case['id']} has only {words} learner words"
 
 

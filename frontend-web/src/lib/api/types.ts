@@ -503,6 +503,12 @@ export type TranscriptionResult = {
   provider: string;
 };
 
+export type RoomDeleted = {
+  id: string;
+  /** How many people were still in the room. Deleting a busy one ejects them. */
+  participants_removed: number;
+};
+
 // ----- Admin panel (docs/11_Security.md 11.9) -----
 
 /** Two roles, deliberately. A third would be a migration, not a rewrite. */

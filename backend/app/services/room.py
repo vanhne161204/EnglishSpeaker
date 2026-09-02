@@ -7,9 +7,11 @@ from datetime import UTC, datetime
 from app.core.config import settings
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.core.security import hash_password, verify_password
-from app.models.enums import ConversationMode, RoomKind
+from app.models.enums import ConversationMode, RoomKind, UserRole
 from app.models.participant import RoomParticipant
 from app.models.room import Room
+from app.models.user import User
+from app.repositories.audit import AuditRepository
 from app.repositories.participant import ParticipantRepository
 from app.repositories.room import RoomRepository
 from app.repositories.room_ban import RoomBanRepository
@@ -26,11 +28,15 @@ class RoomService:
         participants: ParticipantRepository,
         users: UserRepository,
         bans: RoomBanRepository,
+        audit: AuditRepository | None = None,
     ) -> None:
         self.rooms = rooms
         self.participants = participants
         self.users = users
         self.bans = bans
+        # Only needed for admin deletions, which are privileged actions on
+        # somebody else's content and belong in the audit log.
+        self.audit = audit
 
     async def list_rooms(
         self,
@@ -110,6 +116,45 @@ class RoomService:
         )
         room.participant_count += 1
         return room
+
+    async def delete_room(self, room_id: uuid.UUID, actor: User) -> int:
+        """Delete a room. The owner may delete theirs; an admin may delete any.
+
+        Returns how many people were still in it, so the caller can warn.
+
+        This is a real delete, not a close: the room's messages, transcript,
+        participants and bans go with it. Coach reports and AI usage survive with
+        a NULL room, because they are the learner's own record of their practice
+        and losing those to somebody else's tidy-up would be wrong.
+
+        Raises:
+            NotFoundError: no such room.
+            ForbiddenError: the caller is neither the owner nor an admin.
+        """
+        room = await self.get_room(room_id)
+
+        is_owner = room.owner_id is not None and room.owner_id == actor.id
+        is_admin = actor.role == UserRole.admin
+        if not is_owner and not is_admin:
+            raise ForbiddenError("Only the room owner can delete this room")
+
+        still_inside = room.participant_count
+
+        # An admin removing somebody else's room is a privileged act on content
+        # they do not own. The owner tidying up their own room is not.
+        if is_admin and not is_owner and self.audit is not None:
+            await self.audit.record(
+                actor_id=actor.id,
+                actor_name=actor.display_name,
+                action="room.delete",
+                target_type="room",
+                target_id=room.id,
+                target_name=room.title,
+                detail=f"deleted a room with {still_inside} participant(s)",
+            )
+
+        await self.rooms.delete(room)
+        return still_inside
 
     async def leave_room(self, room_id: uuid.UUID, user_id: uuid.UUID) -> Room:
         room = await self.get_room(room_id)

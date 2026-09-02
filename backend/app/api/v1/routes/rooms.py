@@ -14,7 +14,7 @@ from app.realtime.connection_manager import manager
 from app.schemas.message import MessageCreate, MessageRead
 from app.schemas.moderation import ModerateRequest, ModerateResult
 from app.schemas.participant import JoinRequest
-from app.schemas.room import RoomCreate, RoomRead
+from app.schemas.room import RoomCreate, RoomDeleted, RoomRead
 from app.services.conversation import ConversationService
 from app.services.room import RoomService
 
@@ -63,6 +63,34 @@ async def join_room(
     service: RoomService = Depends(get_room_service),
 ) -> Room:
     return await service.join_room(room_id, user.id, payload.display_name, payload.password)
+
+
+@router.delete(
+    "/{room_id}",
+    response_model=RoomDeleted,
+    summary="Delete a room (owner or admin)",
+)
+async def delete_room(
+    room_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    service: RoomService = Depends(get_room_service),
+) -> RoomDeleted:
+    """Delete a room and everything said in it.
+
+    Permitted for the room's owner, and for any admin. Both are checked against
+    the database inside the service — the caller never says which they are.
+
+    Anyone still connected is told over the socket, so they land back on the room
+    list with an explanation instead of sitting in a page whose every request has
+    started returning 404.
+    """
+    still_inside = await service.delete_room(room_id, user)
+
+    await manager.broadcast(
+        str(room_id),
+        {"type": "room_closed", "reason": "The host closed this room."},
+    )
+    return RoomDeleted(id=room_id, participants_removed=still_inside)
 
 
 @router.post("/{room_id}/leave", response_model=RoomRead, summary="Leave a room")

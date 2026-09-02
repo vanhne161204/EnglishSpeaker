@@ -7,11 +7,13 @@ import {
   listRooms,
   listTopics,
   type ConversationMode,
+  type Room,
   type RoomCreate,
   type RoomKind,
 } from "@/lib/api";
-import { ensureUser } from "@/lib/identity";
+import { ensureUser, useIdentity } from "@/lib/identity";
 import { levelLabel, modeLabel, sizeLabel, topicEmoji } from "@/lib/presentation";
+import { DeleteRoomDialog } from "@/components/room/delete-room-dialog";
 import { ErrorState } from "./topics.index";
 
 export const Route = createFileRoute("/rooms/")({
@@ -39,7 +41,27 @@ const SIZES: ("All" | RoomKind)[] = ["All", "group", "one_on_one"];
 const LEVELS = ["All", "beginner", "intermediate", "advanced"] as const;
 const MODES: ("All" | ConversationMode)[] = ["All", "normal", "incognito"];
 
+/**
+ * Whether to offer a delete button for this room.
+ *
+ * A convenience only: the API re-checks both conditions against the database, so
+ * hiding the button protects nothing. It exists so an ordinary learner is not
+ * shown an action that will 403.
+ *
+ * Note that a room created by Match has no owner at all, so only an admin can
+ * remove it — nobody inherits one by being the first to ask.
+ */
+function canDelete(room: Room, identity: { id: string; role?: string } | null): boolean {
+  if (!identity) return false;
+  return room.owner_id === identity.id || identity.role === "admin";
+}
+
 function RoomsIndex() {
+  const qc = useQueryClient();
+  // Who may delete a room: its owner, and any admin. The server checks both
+  // against the database — this only decides whether to draw the button.
+  const identity = useIdentity();
+  const [deleting, setDeleting] = useState<Room | null>(null);
   const [kind, setKind] = useState<"All" | RoomKind>("All");
   const [level, setLevel] = useState<(typeof LEVELS)[number]>("All");
   const [mode, setMode] = useState<"All" | ConversationMode>("All");
@@ -256,13 +278,30 @@ function RoomsIndex() {
                   </div>
                 </div>
 
-                <Link
-                  to="/rooms/$roomId"
-                  params={{ roomId: r.id }}
-                  className={`mt-5 block text-center rounded-full px-4 py-2.5 text-sm font-semibold ${full ? "bg-muted text-muted-foreground" : "bg-primary text-primary-foreground hover:opacity-90"}`}
-                >
-                  {full ? "Peek inside" : "Enter room"}
-                </Link>
+                <div className="mt-5 flex items-center gap-2">
+                  <Link
+                    to="/rooms/$roomId"
+                    params={{ roomId: r.id }}
+                    className={`flex-1 block text-center rounded-full px-4 py-2.5 text-sm font-semibold ${full ? "bg-muted text-muted-foreground" : "bg-primary text-primary-foreground hover:opacity-90"}`}
+                  >
+                    {full ? "Peek inside" : "Enter room"}
+                  </Link>
+                  {canDelete(r, identity) && (
+                    <button
+                      type="button"
+                      onClick={() => setDeleting(r)}
+                      title={
+                        r.owner_id === identity?.id
+                          ? "Delete this room"
+                          : "Delete this room (admin)"
+                      }
+                      aria-label={`Delete ${r.title}`}
+                      className="flex-none rounded-full border border-destructive/30 px-3 py-2.5 text-sm text-destructive hover:bg-destructive/10"
+                    >
+                      🗑
+                    </button>
+                  )}
+                </div>
               </article>
             );
           })}
@@ -278,6 +317,20 @@ function RoomsIndex() {
           Find a 1-on-1 match
         </Link>
       </section>
+
+      {deleting && (
+        <DeleteRoomDialog
+          roomId={deleting.id}
+          roomTitle={deleting.title}
+          participants={deleting.participant_count}
+          asAdmin={deleting.owner_id !== identity?.id}
+          onDeleted={() => {
+            setDeleting(null);
+            void qc.invalidateQueries({ queryKey: ["rooms"] });
+          }}
+          onCancel={() => setDeleting(null)}
+        />
+      )}
 
       {showCreate && (
         <CreateRoomModal

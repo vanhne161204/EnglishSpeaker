@@ -55,6 +55,7 @@ import type {
   ReportReview,
   ReportStatus,
   RoomBan,
+  RoomDeleted,
   UserRole,
   RoomKind,
   SentenceFeedback,
@@ -278,6 +279,11 @@ export async function transcribe(audio: Blob, language?: string): Promise<Transc
 //
 // Every call here is admin-only on the server. The client guard in
 // `require-auth.ts` is convenience; these 403 without an admin token.
+
+/** Delete a room. Allowed for its owner, and for any admin — the server checks
+ *  both against the database, so the caller never says which it is. */
+export const deleteRoom = (roomId: string) =>
+  apiRequest<RoomDeleted>(`/rooms/${roomId}`, { method: "DELETE" });
 
 export const adminOverview = () => apiRequest<AdminOverview>("/admin/overview");
 

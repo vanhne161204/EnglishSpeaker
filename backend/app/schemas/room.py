@@ -23,6 +23,17 @@ class RoomCreate(BaseModel):
     password: str | None = Field(default=None, min_length=1, max_length=72)
 
 
+class RoomDeleted(BaseModel):
+    """What a delete removed.
+
+    ``participants_removed`` is not decoration: deleting a busy room ejects real
+    people mid-conversation, and the caller should be able to say so.
+    """
+
+    id: uuid.UUID
+    participants_removed: int
+
+
 class RoomRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -25,6 +25,7 @@ import {
 import { ensureUser, randomGuestName, useIdentity } from "@/lib/identity";
 import { LANGS, topicEmoji } from "@/lib/presentation";
 import { LeaveDialog } from "@/components/room/leave-dialog";
+import { DeleteRoomDialog } from "@/components/room/delete-room-dialog";
 import { ReportDialog } from "@/components/room/report-dialog";
 import { IdeaPanel } from "@/components/room/idea-panel";
 import type { TranscriptLine } from "@/components/room/transcript-panel";
@@ -135,12 +136,16 @@ function RoomLive({
   // Reporting is available to everyone in the room, not just the host: the
   // person who needs it most is usually the one with no moderation powers.
   const [reporting, setReporting] = useState<{ id: string; name: string } | null>(null);
+  // Deleting the room you are in. Offered to its owner, and to any admin — the
+  // server re-checks both, so this only decides whether to draw the button.
+  const [deletingRoom, setDeletingRoom] = useState(false);
   // The coach report is per-account. Everyone in a room is signed in (the route
   // is guarded), but a token can expire mid-session, so the dialog still checks.
   const identity = useIdentity();
   const signedIn = !!identity?.token;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const isOwner = userId != null && room.owner_id === userId;
+  const canDeleteRoom = isOwner || identity?.role === "admin";
 
   // Save a sentence to the user's notes (PRD §8.7), with a brief confirmation.
   const saveNote = useCallback(
@@ -348,6 +353,13 @@ function RoomLive({
             text: `${name} ${joined ? "joined" : "left"} the room.`,
           },
         ]);
+      } else if (frame.type === "room_closed") {
+        // The room was deleted while we were in it. Without this the page stays
+        // open and every request starts 404ing, which reads as the app being
+        // broken rather than the room being gone.
+        flashNotice(String(frame.reason ?? "This room was closed."));
+        leaveCall();
+        window.setTimeout(() => void navigate({ to: "/rooms" }), 1500);
       } else if (frame.type === "moderation") {
         const target = String(frame.target ?? "");
         const action = String(frame.action ?? "");
@@ -647,6 +659,18 @@ function RoomLive({
                     >
                       Leave
                     </button>
+                    {/* Leave and Delete are deliberately different weights: one
+                        is routine, the other ends it for everybody. */}
+                    {canDeleteRoom && (
+                      <button
+                        type="button"
+                        onClick={() => setDeletingRoom(true)}
+                        title={isOwner ? "Delete this room" : "Delete this room (admin)"}
+                        className="rounded-full border border-destructive/40 px-3 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10"
+                      >
+                        Delete room
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -857,6 +881,21 @@ function RoomLive({
             <TopicDetailCard topic={topic} topicId={topicId} onUse={(t) => setDraft(t)} />
           </div>
         </>
+      )}
+
+      {deletingRoom && (
+        <DeleteRoomDialog
+          roomId={room.id}
+          roomTitle={room.title}
+          participants={peopleCount}
+          asAdmin={!isOwner}
+          onDeleted={() => {
+            setDeletingRoom(false);
+            live.stop();
+            void navigate({ to: "/rooms" });
+          }}
+          onCancel={() => setDeletingRoom(false)}
+        />
       )}
 
       {reporting && (
