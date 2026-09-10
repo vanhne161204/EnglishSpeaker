@@ -148,6 +148,7 @@ const APP_NAV = [
   { to: "/match", label: "Match" },
   { to: "/topics", label: "Topics" },
   { to: "/notes", label: "Notes" },
+  { to: "/history", label: "History" },
 ];
 
 function SiteHeader() {

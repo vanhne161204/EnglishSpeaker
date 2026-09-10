@@ -33,6 +33,19 @@ class ParticipantRepository:
         )
         return result.scalars().all()
 
+    async def was_member(self, room_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+        """Whether this user was EVER in this room: now, or at any point before.
+
+        Reading a room's conversation needs this, not `get_active`. A learner
+        reviewing a session after leaving it is exactly what History is for.
+        """
+        result = await self.session.execute(
+            select(RoomParticipant.id)
+            .where(RoomParticipant.room_id == room_id, RoomParticipant.user_id == user_id)
+            .limit(1)
+        )
+        return result.first() is not None
+
     async def add(self, participant: RoomParticipant) -> RoomParticipant:
         self.session.add(participant)
         await self.session.flush()

@@ -24,8 +24,10 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TopicsIndexRouteImport } from './routes/topics.index'
 import { Route as RoomsIndexRouteImport } from './routes/rooms.index'
+import { Route as HistoryIndexRouteImport } from './routes/history.index'
 import { Route as TopicsTopicIdRouteImport } from './routes/topics.$topicId'
 import { Route as RoomsRoomIdRouteImport } from './routes/rooms.$roomId'
+import { Route as HistoryRoomIdRouteImport } from './routes/history.$roomId'
 
 const WarmupRoute = WarmupRouteImport.update({
   id: '/warmup',
@@ -102,6 +104,11 @@ const RoomsIndexRoute = RoomsIndexRouteImport.update({
   path: '/rooms/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HistoryIndexRoute = HistoryIndexRouteImport.update({
+  id: '/history/',
+  path: '/history/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TopicsTopicIdRoute = TopicsTopicIdRouteImport.update({
   id: '/topics/$topicId',
   path: '/topics/$topicId',
@@ -110,6 +117,11 @@ const TopicsTopicIdRoute = TopicsTopicIdRouteImport.update({
 const RoomsRoomIdRoute = RoomsRoomIdRouteImport.update({
   id: '/rooms/$roomId',
   path: '/rooms/$roomId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HistoryRoomIdRoute = HistoryRoomIdRouteImport.update({
+  id: '/history/$roomId',
+  path: '/history/$roomId',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -127,8 +139,10 @@ export interface FileRoutesByFullPath {
   '/profile': typeof ProfileRoute
   '/safety': typeof SafetyRoute
   '/warmup': typeof WarmupRoute
+  '/history/$roomId': typeof HistoryRoomIdRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/topics/$topicId': typeof TopicsTopicIdRoute
+  '/history/': typeof HistoryIndexRoute
   '/rooms/': typeof RoomsIndexRoute
   '/topics/': typeof TopicsIndexRoute
 }
@@ -146,8 +160,10 @@ export interface FileRoutesByTo {
   '/profile': typeof ProfileRoute
   '/safety': typeof SafetyRoute
   '/warmup': typeof WarmupRoute
+  '/history/$roomId': typeof HistoryRoomIdRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/topics/$topicId': typeof TopicsTopicIdRoute
+  '/history': typeof HistoryIndexRoute
   '/rooms': typeof RoomsIndexRoute
   '/topics': typeof TopicsIndexRoute
 }
@@ -166,8 +182,10 @@ export interface FileRoutesById {
   '/profile': typeof ProfileRoute
   '/safety': typeof SafetyRoute
   '/warmup': typeof WarmupRoute
+  '/history/$roomId': typeof HistoryRoomIdRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/topics/$topicId': typeof TopicsTopicIdRoute
+  '/history/': typeof HistoryIndexRoute
   '/rooms/': typeof RoomsIndexRoute
   '/topics/': typeof TopicsIndexRoute
 }
@@ -187,8 +205,10 @@ export interface FileRouteTypes {
     | '/profile'
     | '/safety'
     | '/warmup'
+    | '/history/$roomId'
     | '/rooms/$roomId'
     | '/topics/$topicId'
+    | '/history/'
     | '/rooms/'
     | '/topics/'
   fileRoutesByTo: FileRoutesByTo
@@ -206,8 +226,10 @@ export interface FileRouteTypes {
     | '/profile'
     | '/safety'
     | '/warmup'
+    | '/history/$roomId'
     | '/rooms/$roomId'
     | '/topics/$topicId'
+    | '/history'
     | '/rooms'
     | '/topics'
   id:
@@ -225,8 +247,10 @@ export interface FileRouteTypes {
     | '/profile'
     | '/safety'
     | '/warmup'
+    | '/history/$roomId'
     | '/rooms/$roomId'
     | '/topics/$topicId'
+    | '/history/'
     | '/rooms/'
     | '/topics/'
   fileRoutesById: FileRoutesById
@@ -245,8 +269,10 @@ export interface RootRouteChildren {
   ProfileRoute: typeof ProfileRoute
   SafetyRoute: typeof SafetyRoute
   WarmupRoute: typeof WarmupRoute
+  HistoryRoomIdRoute: typeof HistoryRoomIdRoute
   RoomsRoomIdRoute: typeof RoomsRoomIdRoute
   TopicsTopicIdRoute: typeof TopicsTopicIdRoute
+  HistoryIndexRoute: typeof HistoryIndexRoute
   RoomsIndexRoute: typeof RoomsIndexRoute
   TopicsIndexRoute: typeof TopicsIndexRoute
 }
@@ -358,6 +384,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RoomsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/history/': {
+      id: '/history/'
+      path: '/history'
+      fullPath: '/history/'
+      preLoaderRoute: typeof HistoryIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/topics/$topicId': {
       id: '/topics/$topicId'
       path: '/topics/$topicId'
@@ -370,6 +403,13 @@ declare module '@tanstack/react-router' {
       path: '/rooms/$roomId'
       fullPath: '/rooms/$roomId'
       preLoaderRoute: typeof RoomsRoomIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/history/$roomId': {
+      id: '/history/$roomId'
+      path: '/history/$roomId'
+      fullPath: '/history/$roomId'
+      preLoaderRoute: typeof HistoryRoomIdRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -389,8 +429,10 @@ const rootRouteChildren: RootRouteChildren = {
   ProfileRoute: ProfileRoute,
   SafetyRoute: SafetyRoute,
   WarmupRoute: WarmupRoute,
+  HistoryRoomIdRoute: HistoryRoomIdRoute,
   RoomsRoomIdRoute: RoomsRoomIdRoute,
   TopicsTopicIdRoute: TopicsTopicIdRoute,
+  HistoryIndexRoute: HistoryIndexRoute,
   RoomsIndexRoute: RoomsIndexRoute,
   TopicsIndexRoute: TopicsIndexRoute,
 }

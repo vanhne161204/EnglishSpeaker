@@ -19,11 +19,13 @@ from app.models.session_report import SessionReport
 from app.models.topic import Topic
 from app.models.transcript import TranscriptSegment
 from app.models.user import User
+from app.models.voice_session import AiVoiceSession
 
 __all__ = [
     "AbuseReport",
     "AdminAuditLog",
     "AiUsage",
+    "AiVoiceSession",
     "AnswerTemplate",
     "Category",
     "Doc",

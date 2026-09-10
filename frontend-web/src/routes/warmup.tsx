@@ -11,6 +11,7 @@ import {
   type Topic,
   type TopicQuestion,
 } from "@/lib/api";
+import { AiVoiceCoach } from "@/components/warmup/ai-voice-coach";
 import { resolveWarmupQuestions } from "@/lib/warmup";
 import { useMicTranscribe } from "@/lib/voice/use-mic-transcribe";
 import { levelLabel, topicEmoji } from "@/lib/presentation";
@@ -50,7 +51,12 @@ function WarmupPage() {
   // One flat fetch covers every topic, so switching topics needs no extra request.
   const questionsQ = useQuery({ queryKey: ["questions"], queryFn: () => listQuestions() });
   const [topic, setTopic] = useState<Topic | null>(null);
+  const [mode, setMode] = useState<"classic" | "ai">("classic");
   const [started, setStarted] = useState(false);
+
+  if (started && mode === "ai") {
+    return <AiVoiceCoach topic={topic} onExit={() => setStarted(false)} />;
+  }
 
   if (started) {
     return (
@@ -132,11 +138,33 @@ function WarmupPage() {
       </div>
 
       <div className="mt-8">
+        <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
+          Choose how to practise
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <TopicChoice
+            selected={mode === "classic"}
+            onClick={() => setMode("classic")}
+            emoji="💬"
+            title="Classic"
+            subtitle="Read each question, answer by voice or typing"
+          />
+          <TopicChoice
+            selected={mode === "ai"}
+            onClick={() => setMode("ai")}
+            emoji="🤖"
+            title="AI voice coach"
+            subtitle="Talk out loud with an AI coach (PRD §8.12)"
+          />
+        </div>
+      </div>
+
+      <div className="mt-8">
         <button
           onClick={() => setStarted(true)}
           className="rounded-full bg-primary text-primary-foreground px-6 py-3 text-sm font-semibold hover:opacity-90"
         >
-          Start warm-up →
+          {mode === "ai" ? "Talk with the AI coach →" : "Start warm-up →"}
         </button>
       </div>
     </section>

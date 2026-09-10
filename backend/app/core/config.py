@@ -113,6 +113,25 @@ class Settings(BaseSettings):
     # Deepgram model — nova-2 is accurate and cheap; "nova-2-general" also works.
     deepgram_model: str = "nova-2"
 
+    # --- AI voice coach (Warm-up, Gemini Live — PRD §8.12) ---
+    # The browser talks to Gemini directly with a one-use token minted here, so
+    # this key never leaves the server. Unset = the voice coach is off and
+    # Warm-up offers only the classic mode.
+    #   Get a key: https://aistudio.google.com/apikey
+    # Do NOT run production on the free tier: Google may use free-tier data to
+    # improve its products, and its terms forbid personal data there. A learner's
+    # voice is personal data.
+    gemini_api_key: str | None = None
+    # Voice-to-voice model. The token locks it, so the browser cannot pick another.
+    gemini_live_model: str = "gemini-3.1-flash-live-preview"
+    # Daily allowance per plan, in seconds of open session. Resets 00:00 UTC.
+    voice_coach_free_daily_seconds: int = 15 * 60
+    voice_coach_premium_daily_seconds: int = 60 * 60
+    # Hard cap on one session, baked into the token's expiry so Gemini itself
+    # stops accepting audio after it. Keep <= 600: Gemini resets a Live
+    # connection about every 10 minutes, and we do not do session resumption.
+    voice_coach_session_max_seconds: int = 10 * 60
+
     # --- CORS ---
     # Exact frontend origins allowed to call the API (credentials-safe — no "*").
     # Override in production with your real domain(s), e.g.

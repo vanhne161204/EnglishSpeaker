@@ -42,6 +42,9 @@ export type RequestOptions = {
   /** Query-string params; `null`/`undefined` values are skipped. */
   query?: Record<string, QueryValue>;
   signal?: AbortSignal;
+  /** Let the request finish even if the page is closing. Needed for "leave the
+   *  room" on tab close: a normal fetch is cancelled when the page unloads. */
+  keepalive?: boolean;
 };
 
 // The session JWT is persisted by `identity.ts` under this localStorage key.
@@ -90,7 +93,7 @@ function buildUrl(path: string, query?: Record<string, QueryValue>): string {
  * `T`), or `undefined` for `204 No Content`. Throws `ApiError` on non-2xx.
  */
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = "GET", body, query, signal } = options;
+  const { method = "GET", body, query, signal, keepalive } = options;
 
   const headers: Record<string, string> = {};
   if (body !== undefined) {
@@ -99,7 +102,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   const token = authToken();
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const init: RequestInit = { method, signal, headers };
+  const init: RequestInit = { method, signal, headers, keepalive };
   if (body !== undefined) {
     init.body = JSON.stringify(body);
   }

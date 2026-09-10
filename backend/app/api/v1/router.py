@@ -10,6 +10,7 @@ from app.api.v1.routes import (
     docs,
     feedback,
     health,
+    history,
     match,
     moderation,
     notes,
@@ -21,6 +22,7 @@ from app.api.v1.routes import (
     transcripts,
     translation,
     users,
+    voice_coach,
     voice_ws,
     ws,
 )
@@ -37,7 +39,9 @@ api_router.include_router(rooms.router)
 api_router.include_router(notes.router)
 api_router.include_router(translation.router)
 api_router.include_router(transcription.router)
+api_router.include_router(voice_coach.router)
 api_router.include_router(transcripts.router)
+api_router.include_router(history.router)
 api_router.include_router(users.router)
 api_router.include_router(match.router)
 api_router.include_router(assist.router)

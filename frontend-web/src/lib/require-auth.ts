@@ -25,7 +25,15 @@ import { currentUser } from "@/lib/identity";
 
 /** Path prefixes that need a signed-in account. Keep in sync with the routes
  *  that call `requireAuth` — `<AuthWatcher>` reads this list. */
-const PROTECTED_PREFIXES = ["/rooms", "/warmup", "/match", "/notes", "/profile", "/admin"];
+const PROTECTED_PREFIXES = [
+  "/rooms",
+  "/warmup",
+  "/match",
+  "/notes",
+  "/history",
+  "/profile",
+  "/admin",
+];
 
 /** Path prefixes that additionally need the `admin` role. */
 const ADMIN_PREFIXES = ["/admin"];

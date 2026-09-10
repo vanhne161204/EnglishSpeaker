@@ -1,5 +1,5 @@
 import { requireAuth } from "@/lib/require-auth";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useBlocker, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -26,6 +26,7 @@ import { ensureUser, randomGuestName, useIdentity } from "@/lib/identity";
 import { LANGS, topicEmoji } from "@/lib/presentation";
 import { LeaveDialog } from "@/components/room/leave-dialog";
 import { DeleteRoomDialog } from "@/components/room/delete-room-dialog";
+import { StayInRoomDialog } from "@/components/room/stay-in-room-dialog";
 import { ReportDialog } from "@/components/room/report-dialog";
 import { IdeaPanel } from "@/components/room/idea-panel";
 import type { TranscriptLine } from "@/components/room/transcript-panel";
@@ -147,6 +148,36 @@ function RoomLive({
   const isOwner = userId != null && room.owner_id === userId;
   const canDeleteRoom = isOwner || identity?.role === "admin";
 
+  // Set just before any exit the person CHOSE: Leave, Delete, a kick, the room
+  // closing. The blocker below reads it, so only accidental exits (a header
+  // link, the back button, closing the tab) stop to ask "are you sure?".
+  const allowExitRef = useRef(false);
+  const exitRoom = useCallback(() => {
+    allowExitRef.current = true;
+    void navigate({ to: "/rooms" });
+  }, [navigate]);
+
+  // Leaving this page runs the unmount cleanup, which leaves the room. So one
+  // stray click on "Topics" used to drop someone out of a live conversation with
+  // no warning. This asks first. `enableBeforeUnload` covers closing or
+  // refreshing the tab with the browser's own prompt; browsers do not allow
+  // custom text there, so the wording is theirs.
+  const inRoom = connected && !banned;
+  const blocker = useBlocker({
+    shouldBlockFn: ({ current, next }) => {
+      if (allowExitRef.current) return false;
+      // Same page, e.g. a search-param change, is not leaving.
+      if (next.pathname === current.pathname) return false;
+      // The session died and <AuthWatcher> is sending them to log in. Blocking
+      // that would strand them in a room where every request now fails.
+      if (next.pathname.startsWith("/login")) return false;
+      return true;
+    },
+    enableBeforeUnload: () => !allowExitRef.current,
+    disabled: !inRoom,
+    withResolver: true,
+  });
+
   // Save a sentence to the user's notes (PRD §8.7), with a brief confirmation.
   const saveNote = useCallback(
     async (note: NoteCreate) => {
@@ -203,6 +234,7 @@ function RoomLive({
         // normally catches this; the check here covers a token that expired
         // while the page was open.
         if (!user) {
+          allowExitRef.current = true;
           void navigate({ to: "/login", search: { next: window.location.pathname } });
           return;
         }
@@ -359,7 +391,7 @@ function RoomLive({
         // broken rather than the room being gone.
         flashNotice(String(frame.reason ?? "This room was closed."));
         leaveCall();
-        window.setTimeout(() => void navigate({ to: "/rooms" }), 1500);
+        window.setTimeout(exitRoom, 1500);
       } else if (frame.type === "moderation") {
         const target = String(frame.target ?? "");
         const action = String(frame.action ?? "");
@@ -368,7 +400,7 @@ function RoomLive({
           if (action === "kick") {
             flashNotice("You were removed from this room by the host.");
             leaveCall();
-            window.setTimeout(() => void navigate({ to: "/rooms" }), 1200);
+            window.setTimeout(exitRoom, 1200);
           } else if (action === "mute") {
             setHostMuted(true);
             flashNotice("The host muted your microphone.");
@@ -395,7 +427,7 @@ function RoomLive({
     showPasswordPrompt,
     flashNotice,
     leaveCall,
-    navigate,
+    exitRoom,
     setHostMuted,
   ]);
 
@@ -409,6 +441,20 @@ function RoomLive({
     return () => {
       if (userId) void leaveRoom(room.id).catch(() => {});
     };
+  }, [userId, room.id]);
+
+  // Closing the tab or the browser never runs React's unmount cleanup, so the
+  // effect above does not fire and the seat stayed taken: the server only
+  // broadcasts "left" when the socket drops, it does not free the seat.
+  // `pagehide` does fire on close, and `keepalive` lets the request finish
+  // after the page is gone.
+  useEffect(() => {
+    if (!userId) return;
+    const onPageHide = () => {
+      void leaveRoom(room.id, { keepalive: true }).catch(() => {});
+    };
+    window.addEventListener("pagehide", onPageHide);
+    return () => window.removeEventListener("pagehide", onPageHide);
   }, [userId, room.id]);
 
   const send = useCallback((text: string) => {
@@ -563,7 +609,7 @@ function RoomLive({
         <ErrorState
           message={joinError ?? "You were removed from this room"}
           hint="The host removed you, so you can't rejoin this room. You can still join any other room."
-          onRetry={() => void navigate({ to: "/rooms" })}
+          onRetry={exitRoom}
           retryLabel="Find another room"
         />
       ) : (
@@ -883,6 +929,17 @@ function RoomLive({
         </>
       )}
 
+      {blocker.status === "blocked" && (
+        <StayInRoomDialog
+          onStay={() => blocker.reset?.()}
+          onLeave={() => {
+            live.stop();
+            allowExitRef.current = true;
+            blocker.proceed?.();
+          }}
+        />
+      )}
+
       {deletingRoom && (
         <DeleteRoomDialog
           roomId={room.id}
@@ -892,7 +949,7 @@ function RoomLive({
           onDeleted={() => {
             setDeletingRoom(false);
             live.stop();
-            void navigate({ to: "/rooms" });
+            exitRoom();
           }}
           onCancel={() => setDeletingRoom(false)}
         />
@@ -921,7 +978,7 @@ function RoomLive({
           // Stop the mic before navigating; the unmount cleanup also leaves the
           // room, so nothing is left holding the microphone.
           live.stop();
-          void navigate({ to: "/rooms" });
+          exitRoom();
         }}
         onCancel={() => setLeaving(false)}
       />

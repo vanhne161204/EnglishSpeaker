@@ -64,6 +64,14 @@ async def _room_and_speaker(client: AsyncClient) -> tuple[uuid.UUID, uuid.UUID, 
             headers={"Authorization": f"Bearer {auth['token']}"},
         )
     ).json()
+    # Join it as well. Reading a room's conversation needs membership, and
+    # creating a room is not the same as being in it (PRD 8.13).
+    joined = await client.post(
+        f"/api/v1/rooms/{room['id']}/join",
+        json={},
+        headers={"Authorization": f"Bearer {auth['token']}"},
+    )
+    assert joined.status_code == 200, joined.text
     return (
         uuid.UUID(room["id"]),
         uuid.UUID(auth["user"]["id"]),
@@ -243,11 +251,13 @@ async def test_stt_confidence_is_captured_when_the_engine_reports_it(
 
 
 async def test_the_room_script_reads_back_oldest_first(client: AsyncClient) -> None:
-    room_id, user_id, name, _ = await _room_and_speaker(client)
+    room_id, user_id, name, token = await _room_and_speaker(client)
     for i, line in enumerate(["First thing.", "Second thing.", "Third thing."]):
         await _speak(room_id, user_id, name, line, seq=i)
 
-    resp = await client.get(f"/api/v1/transcripts/rooms/{room_id}")
+    resp = await client.get(
+        f"/api/v1/transcripts/rooms/{room_id}", headers={"Authorization": f"Bearer {token}"}
+    )
 
     assert resp.status_code == 200
     texts = [s["text"] for s in resp.json()["segments"]]
@@ -258,13 +268,16 @@ async def test_the_room_script_can_be_filtered_to_one_speaker(
     client: AsyncClient,
 ) -> None:
     """Coach Report grades one learner at a time (docs §10.3.0)."""
-    room_id, alice, alice_name, _ = await _room_and_speaker(client)
+    room_id, alice, alice_name, alice_token = await _room_and_speaker(client)
     _, bob, bob_name, _ = await _room_and_speaker(client)
 
     await _speak(room_id, alice, alice_name, "Alice speaking.")
     await _speak(room_id, bob, bob_name, "Bob speaking.")
 
-    resp = await client.get(f"/api/v1/transcripts/rooms/{room_id}?speaker_id={alice}")
+    resp = await client.get(
+        f"/api/v1/transcripts/rooms/{room_id}?speaker_id={alice}",
+        headers={"Authorization": f"Bearer {alice_token}"},
+    )
 
     texts = [s["text"] for s in resp.json()["segments"]]
     assert texts == ["Alice speaking."]
@@ -313,7 +326,8 @@ async def test_deleting_my_transcript_leaves_everyone_elses_alone(
 
 
 async def test_paging_walks_backwards_through_time(client: AsyncClient) -> None:
-    room_id, user_id, name, _ = await _room_and_speaker(client)
+    room_id, user_id, name, token = await _room_and_speaker(client)
+    auth = {"Authorization": f"Bearer {token}"}
     base = datetime.now(UTC) - timedelta(minutes=10)
     async with AsyncSessionLocal() as session:
         service = TranscriptService(TranscriptRepository(session))
@@ -326,12 +340,15 @@ async def test_paging_walks_backwards_through_time(client: AsyncClient) -> None:
             )
         await session.commit()
 
-    first = (await client.get(f"/api/v1/transcripts/rooms/{room_id}?limit=2")).json()
+    first = (
+        await client.get(f"/api/v1/transcripts/rooms/{room_id}?limit=2", headers=auth)
+    ).json()
     assert [s["text"] for s in first["segments"]] == ["line 3", "line 4"]
 
     older = (
         await client.get(
-            f"/api/v1/transcripts/rooms/{room_id}?limit=2&before={first['next_before']}"
+            f"/api/v1/transcripts/rooms/{room_id}?limit=2&before={first['next_before']}",
+            headers=auth,
         )
     ).json()
     assert [s["text"] for s in older["segments"]] == ["line 1", "line 2"]

@@ -6,6 +6,8 @@ from fastapi import Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.factory import build_llm, build_transcriber, build_translator
+from app.ai.live_port import LiveTokenMinter
+from app.ai.providers.gemini_live import build_live_minter
 from app.ai.routing import AiTask
 from app.core.exceptions import AppError
 from app.core.security import decode_access_token
@@ -38,6 +40,7 @@ from app.services.topic import TopicService
 from app.services.transcription import TranscriptionService
 from app.services.translation import TranslationService
 from app.services.user import UserService
+from app.services.voice_coach import VoiceCoachService
 
 
 def get_category_service(session: AsyncSession = Depends(get_session)) -> CategoryService:
@@ -114,6 +117,24 @@ def get_assistant_service(
 def get_transcription_service() -> TranscriptionService:
     """Wire speech-to-text to its configured engine chain (docs §18.10)."""
     return TranscriptionService(build_transcriber())
+
+
+def get_live_token_minter() -> LiveTokenMinter | None:
+    """The Gemini Live token minter, or None when the voice coach is off.
+
+    Its own dependency so tests can swap in a fake without touching Google.
+    """
+    return build_live_minter()
+
+
+def get_voice_coach_service(
+    session: AsyncSession = Depends(get_session),
+    minter: LiveTokenMinter | None = Depends(get_live_token_minter),
+) -> VoiceCoachService:
+    """Wire the Warm-up voice coach (PRD §8.12). The doc service supplies the
+    topic's published questions, which become the coach's plan."""
+    docs = DocService(DocRepository(session), TopicRepository(session))
+    return VoiceCoachService(session, docs, minter)
 
 
 def get_user_service(session: AsyncSession = Depends(get_session)) -> UserService:

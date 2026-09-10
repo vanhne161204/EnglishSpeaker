@@ -163,7 +163,8 @@ endpoint not on this list is a bug.
 | `DELETE /rooms/{id}` | ❌ | 🔒 | ✅ | **Owner of that room, or any admin.** Both checked against the database; an admin deleting someone else's room is audited |
 | `WS /ws/rooms/{id}`, `/ws/voice/{id}` | ❌ | ✅ | ✅ | Identity from the token, never a query param |
 | `POST /assist`, `/translate`, `/transcribe` | ❌ | ✅ | ✅ | Every AI call is attributable and capped |
-| `GET /transcripts/rooms/{id}` | ❌ | ✅ | ✅ | Members of that room |
+| `GET /transcripts/rooms/{id}` | ❌ | 🔒 | 🔒 | **Past or present members of that room only.** This route had *no* check at all until the History feature — any visitor, even logged out, could read every room's conversation, and room ids are public in the room list |
+| `GET /history/me` | ❌ | 🔒 | 🔒 | **Own rooms and own feedback only** — the rooms the caller joined, from the token |
 | `GET|DELETE /transcripts/me` | ❌ | 🔒 | 🔒 | **Own rows only** |
 | `POST|GET /feedback/*`, `/reports/*` | ❌ | 🔒 | 🔒 | **Own rows only** |
 | `GET|POST|PATCH|DELETE /notes` | ❌ | 🔒 | 🔒 | **Own rows only** |

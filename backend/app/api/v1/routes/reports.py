@@ -115,6 +115,6 @@ async def band_history(
     """Oldest-first, ready to plot. Progress is what brings a learner back."""
     rows = await SessionReportRepository(session).history(user.id, limit)
     return [
-        BandPoint(created_at=r.created_at, band_overall=r.band_overall, mode=r.mode)
+        BandPoint(created_at=r.created_at, band_overall=float(r.band_overall), mode=r.mode)
         for r in rows
     ]

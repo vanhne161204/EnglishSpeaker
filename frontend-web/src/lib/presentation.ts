@@ -97,3 +97,11 @@ export function parseInterests(raw: string | null | undefined): string[] {
     .map((s) => s.trim())
     .filter(Boolean);
 }
+
+/** "12 Sep 2026, 14:05", in the reader's own locale. */
+export function formatWhen(iso: string): string {
+  const d = new Date(iso);
+  const day = d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return `${day}, ${time}`;
+}

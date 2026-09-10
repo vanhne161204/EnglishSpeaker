@@ -15,7 +15,15 @@ import { adminAiCalls, type AiCall } from "@/lib/api";
 
 const PAGE = 50;
 
-const TASKS = ["", "rescue", "translation", "sentence_check", "ielts_report", "transcription"];
+const TASKS = [
+  "",
+  "rescue",
+  "translation",
+  "sentence_check",
+  "ielts_report",
+  "transcription",
+  "voice_coach",
+];
 
 const TASK_LABELS: Record<string, string> = {
   "": "All tasks",
@@ -24,6 +32,7 @@ const TASK_LABELS: Record<string, string> = {
   sentence_check: "Sentence feedback",
   ielts_report: "IELTS report",
   transcription: "Speech-to-text",
+  voice_coach: "AI voice coach",
 };
 
 /** Enough decimal places that a fraction of a cent is still a number. */

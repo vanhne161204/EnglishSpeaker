@@ -14,8 +14,10 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.exceptions import ForbiddenError
 from app.db.session import get_session
 from app.models.user import User
+from app.repositories.participant import ParticipantRepository
 from app.repositories.transcript import TranscriptRepository
 from app.schemas.transcript import TranscriptPage, TranscriptSegmentRead
 
@@ -48,8 +50,20 @@ async def room_transcript(
     before: datetime | None = Query(
         default=None, description="Return segments spoken before this time (paging)."
     ),
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> TranscriptPage:
+    """A room's conversation, for people who were in it and nobody else.
+
+    This route had no check at all until PRD 8.13: any visitor, even logged out,
+    could read every room's conversation, and room ids are public in the room
+    list. "Was a member" rather than "is in the room now", because reading a
+    finished session afterwards is the whole point of History.
+    """
+    if not await ParticipantRepository(session).was_member(room_id, user.id):
+        raise ForbiddenError(
+            "You can only read the conversation of a room you were in.", code="not_a_member"
+        )
     segments = await TranscriptRepository(session).list_for_room(
         room_id, limit=limit, before=before, user_id=speaker_id
     )

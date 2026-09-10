@@ -256,6 +256,14 @@ Room rules:
 - A room can have a suggested level.
 - Users should see room information before joining.
 
+Leaving a room (accident protection):
+
+- A user only leaves a room when they choose to: the Leave button, deleting the room, or being removed by the host.
+- If the user clicks something else by accident — a menu link, the logo, the browser back button — the app asks "Leave this room?" first. "Stay in room" is the main button, so the safe choice is the easy one.
+- Closing or refreshing the tab shows the browser's own "leave site?" prompt. (Browsers do not allow custom text here.)
+- If the user confirms closing the tab, their seat is freed straight away, so the room does not show a ghost member.
+- Being sent to the login page because the session expired is never blocked.
+
 One room model:
 
 - A group room and a 1-on-1 conversation are the same model.
@@ -686,6 +694,90 @@ Why this matters:
 - The user can warm up their speaking before talking to a real person.
 - The user practices topic questions they will likely meet in a room.
 - Seeing the transcript builds confidence and makes it easy to save good sentences.
+
+### AI Voice Coach (Gemini Live)
+
+Warm-up has a second mode: the user talks with an AI coach by voice, like a
+phone call, instead of reading questions on the screen.
+
+User flow:
+
+- The user opens Warm-up, chooses a topic, and picks **AI voice coach**.
+- The coach greets the user and asks the topic's questions (8.2) out loud, one at a time.
+- The user answers by speaking. The coach reacts in one or two short sentences,
+  may ask one follow-up, and says one clear mistake the right way.
+- Both sides appear as live captions. The user can save any of their own lines to notes.
+- The user can mute the microphone or end the session at any time.
+- When the questions are done, the coach gives a short summary and invites the user to a room.
+
+Rules:
+
+- Sign-in is required. The coach runs on the Google Gemini Live API
+  (`gemini-3.1-flash-live-preview`). It listens and speaks directly — there is no
+  separate speech-to-text or text-to-speech step.
+- The browser talks to Gemini directly, using a **one-use token** from our
+  server. The real API key never leaves the server. The token locks the model,
+  the coach instructions and a hard end time, so the browser cannot change them.
+- **Daily allowance:** Free 15 minutes, Premium 60 minutes (settings in
+  `docs/17_Models_And_Fields.md`). It resets at 00:00 UTC (07:00 in Vietnam).
+  The user always sees how many minutes are left.
+- **The server counts time, not the browser.** One session lasts at most 10
+  minutes, and never longer than the minutes left today. While a session is
+  open, its full limit is held; when it ends, the unused time comes back. A
+  session that was never ended (for example, the tab crashed) counts in full
+  once its time runs out.
+- A session with 2 minutes of silence ends by itself, so the user does not pay for silence.
+- If the server has no Gemini key, this mode shows as unavailable and the classic Warm-up still works.
+- The user is told that their voice is sent to Google to create the coach's replies.
+
+Cost and risk:
+
+- Paid tier price (checked 2026-09-10): $3.00 per 1M audio tokens in and
+  $12.00 per 1M audio tokens out, at 25 tokens per second of audio. With the
+  coach talking half the time, one minute costs about **$0.0135**. A full free
+  allowance (15 minutes) costs about $0.20 per user per day.
+- **Do not run production on the Gemini free tier.** On the free tier Google may
+  use the data to improve its products and people may review it, and its terms
+  forbid personal information — a learner's voice is personal information.
+- Gemini API terms require users to be 18 or older. Decide the app's minimum
+  age before this mode goes live.
+
+## 8.13 Practice History
+
+A signed-in user can look back at every conversation they joined.
+
+User flow:
+
+- The user opens **History** from the menu.
+- The page lists the rooms the user joined, newest first.
+- The user opens one item to see that conversation and the AI's feedback on it.
+
+Each item in the list shows:
+
+- The room name, topic, and level.
+- When the user was last there, and how many times they joined.
+- How many lines the user spoke there.
+- A short summary of the AI feedback: how many sentences were checked, how many had mistakes, and the IELTS band estimate if there is one.
+
+Opening an item shows:
+
+- The conversation from that room (the live script), with the user's own lines highlighted.
+- The AI feedback on the user's own sentences (the Coach report, see 10.3 layer 1).
+- The IELTS band estimate (10.3 layer 2).
+- If the user did not ask for feedback when they left, they can ask for it here, as long as the room still exists.
+
+History rules:
+
+- A user only sees rooms they actually joined, and only their own AI feedback — never another person's.
+- Reading a room's conversation requires that the user was in that room. Knowing the room's link is not enough.
+- Opening History costs no AI call. It shows saved results. The AI only runs when the user presses a button to ask for feedback.
+- If a room was deleted, its conversation is gone, but the user's band report is kept. It still appears in History, marked "Room deleted".
+- Incognito rooms appear in the user's own history, because only the user can see it. The conversation shows the temporary names used in that room.
+
+Why this matters:
+
+- Progress is what brings a learner back. Past feedback shows what they improved and what to practice next.
+- A learner who left without a report can still get one later.
 
 ## 9. User Types
 

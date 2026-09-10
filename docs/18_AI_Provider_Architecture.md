@@ -859,3 +859,64 @@ Abstractions cost something. These are deliberately out of scope:
 The test for adding anything here: *"Do I have two real implementations of this
 today?"* If not, it is a guess about the future, and guesses about the future are
 what make abstractions leak.
+
+## 18.13 The Live voice port (Gemini Live)
+
+The Warm-up AI voice coach (PRD §8.12) is voice-to-voice: the browser streams
+the mic to Gemini Live and plays the audio it sends back. **The server never
+sees the audio.** That makes it a different shape from the other three ports,
+so it gets its own, very small one:
+
+```python
+# app/ai/live_port.py
+class LiveTokenMinter(Protocol):
+    name: str
+    model: str
+    async def mint(self, request: LiveTokenRequest) -> LiveToken: ...
+```
+
+```text
+Browser ──POST /voice-coach/sessions──► API ──auth_tokens.create──► Google
+   │◄──── one-use token + model ────────┘
+   └──── WebSocket: mic PCM 16-bit ⇄ coach audio 24 kHz + captions ────► Gemini Live
+```
+
+### What the token locks
+
+`GeminiLiveTokenMinter` (`app/ai/providers/gemini_live.py`) puts the whole
+session config into `live_connect_constraints` and leaves
+`lock_additional_fields` unset, which the SDK sends as a **global lock**:
+
+| Locked | Why |
+|---|---|
+| `model` | The browser cannot switch to a dearer model. |
+| `system_instruction` | Built on the server from the topic's published questions. The learner cannot rewrite the coach. |
+| `response_modalities: [AUDIO]` + both transcriptions | Captions come from transcription. Native-audio Live models only answer in audio, so a "captions only" mode would cost the same — we do not offer one. |
+| `expire_time` | `now + max_seconds`. Gemini rejects audio after it, so the **server** sets the session length. |
+| `uses: 1`, `new_session_expire_time: +60 s` | A leaked token is worthless once the session is open. |
+
+### Metering without seeing the traffic
+
+The browser could lie about how long it talked, so it is never asked.
+`ai_voice_sessions` stores `created_at` and `max_seconds`; the charge is server
+clock time, capped at `max_seconds`. An open session holds its full limit (two
+tabs cannot spend the same minutes); a session nobody ended is settled at its
+full limit once it expires. Each settled session writes one `ai_usage` row with
+`task = "voice_coach"`, in the **same** transaction as the session row, so the
+ledger and the allowance cannot disagree.
+
+The cost is an **estimate** (`gemini_live_cost`): 25 audio tokens per second,
+mic streamed for the whole session, the coach talking half of it. At $3 / $12
+per 1M audio tokens that is about $0.0135 per minute. Reconcile it against the
+Google invoice before quoting a margin.
+
+### Known gaps
+
+* **No session resumption.** Gemini resets a Live connection about every 10
+  minutes, so `VOICE_COACH_SESSION_MAX_SECONDS` must stay ≤ 600.
+* **Silence is billed.** The mic streams continuously, like TalkHub's. Holding
+  audio back until the learner speaks would cut input cost; it needs care so
+  Gemini's own voice detection still hears the start of each word.
+* **Abandoned sessions settle lazily** — on that learner's next request. An
+  admin spend report can lag until then; a periodic sweep would close the gap.
+* **The token request is experimental** in the SDK and may change shape.

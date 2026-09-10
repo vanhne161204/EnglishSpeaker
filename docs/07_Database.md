@@ -583,6 +583,30 @@ CREATE TABLE ai_feedback_reports (
 > `ai_interactions` is the durable basis for usage reconciliation (§6.9) and for the success metrics in
 > PRD §13 (AI suggestions used). `model` is stored per row so model routing/upgrades stay auditable.
 
+**AI voice coach sessions (PRD §8.12).** The browser streams audio straight to
+Gemini Live, so this row is the server's only record of a session and the source
+of the daily allowance. Time comes from the server clock, never from the browser.
+
+```sql
+CREATE TABLE ai_voice_sessions (
+    id            uuid PRIMARY KEY,
+    user_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    topic_id      uuid REFERENCES topics(id) ON DELETE SET NULL,
+    model         varchar(64) NOT NULL,               -- e.g. 'gemini-3.1-flash-live-preview'
+    max_seconds   integer NOT NULL,                   -- hard limit baked into the token
+    expires_at    timestamptz NOT NULL,               -- Gemini rejects audio after this
+    ended_at      timestamptz,                        -- null while open
+    used_seconds  integer,                            -- server clock, capped at max_seconds
+    cost_usd      numeric(12, 8) NOT NULL DEFAULT 0,  -- estimate, see app/ai/pricing.py
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    updated_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_ai_voice_sessions_user_created ON ai_voice_sessions (user_id, created_at);
+```
+
+> An open session counts its full `max_seconds` against the allowance until it ends.
+> Each closed session also writes one `ai_usage` row (`task = 'voice_coach'`).
+
 ### 6.9 Subscription, Plans, and Usage
 
 ```sql

@@ -371,6 +371,16 @@ These live in `backend/app/core/config.py` and are loaded from environment varia
 | `deepgram_api_key` | `DEEPGRAM_API_KEY` | `null` | Deepgram API key. |
 | `deepgram_model` | `DEEPGRAM_MODEL` | `nova-2` | Deepgram model name. |
 
+### AI voice coach (Gemini Live, PRD §8.12)
+
+| Setting | Env var | Default | Purpose |
+|---|---|---|---|
+| `gemini_api_key` | `GEMINI_API_KEY` | `null` | Gemini API key. Unset = voice coach off. Use a key whose project has billing on. |
+| `gemini_live_model` | `GEMINI_LIVE_MODEL` | `gemini-3.1-flash-live-preview` | Live model. Locked into every token. |
+| `voice_coach_free_daily_seconds` | `VOICE_COACH_FREE_DAILY_SECONDS` | `900` | Free plan: seconds per day. |
+| `voice_coach_premium_daily_seconds` | `VOICE_COACH_PREMIUM_DAILY_SECONDS` | `3600` | Premium plan: seconds per day. |
+| `voice_coach_session_max_seconds` | `VOICE_COACH_SESSION_MAX_SECONDS` | `600` | Cap on one session. Keep ≤ 600: Gemini resets a Live connection about every 10 minutes. |
+
 ---
 
 ## 6. API-only types (not persisted)
@@ -386,6 +396,7 @@ These appear in request/response bodies but have **no database table**.
 | `TranscriptionResult` | `/transcribe` | Speech-to-text output. |
 | `ModerateResult` | Room moderation endpoints | Mute/kick actions (state partly in Redis). |
 | `Subscription` / `PlanLimits` | `/subscription` | Plan quotas (enforced in app logic). |
+| `VoiceCoachUsage` / `VoiceSessionStarted` / `VoiceSessionEnded` | `/voice-coach/*` | AI voice coach allowance, one-use token, and session close. |
 
 ---
 
@@ -408,6 +419,7 @@ Matching, presence, and rate limiting use Redis. Data here is **rebuildable or d
 | User registration / login | `User` |
 | Admin topic management | `User.is_admin`, `Topic`, `Category` |
 | Study page / Warm-up Practice | `Doc`, `DocSection`, `DocItem`, `Question`, `AnswerTemplate` |
+| Warm-up AI voice coach | `AiVoiceSession`, `AiUsage` |
 | Room lobby | `Room` |
 | Join / leave room | `Room`, `RoomParticipant` |
 | Chat history | `Message` |

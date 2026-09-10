@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from decimal import Decimal
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -89,17 +88,21 @@ class IeltsReport(BaseModel):
 
 
 class SessionReportRead(BaseModel):
+    # Bands go out as JSON NUMBERS. As `Decimal` they serialised as strings like
+    # "6.5", and the browser formats bands with `toFixed()`, which a string does
+    # not have: the band report card crashed whenever a saved report existed.
+    # The database column stays Numeric; this is only the wire format.
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     room_id: uuid.UUID | None
     mode: str
 
-    band_fluency: Decimal
-    band_lexical: Decimal
-    band_grammar: Decimal
-    band_pronunciation: Decimal | None
-    band_overall: Decimal
+    band_fluency: float
+    band_lexical: float
+    band_grammar: float
+    band_pronunciation: float | None
+    band_overall: float
 
     pronunciation_assessed: bool
     #: True while `overall` averages only Fluency/Lexical/Grammar. The UI MUST
@@ -107,7 +110,7 @@ class SessionReportRead(BaseModel):
     overall_is_estimate: bool
 
     summary: str
-    next_band: Decimal
+    next_band: float
     criteria: dict
     blockers: list[Blocker]
     drills: list[Drill]
@@ -124,5 +127,5 @@ class BandPoint(BaseModel):
     """One point on the progress chart."""
 
     created_at: datetime
-    band_overall: Decimal
+    band_overall: float
     mode: str

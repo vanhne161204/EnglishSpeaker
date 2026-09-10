@@ -71,6 +71,11 @@ import type {
   User,
   UserCreate,
   UserUpdate,
+  HistoryItem,
+  TranscriptPage,
+  VoiceCoachSession,
+  VoiceCoachSessionEnded,
+  VoiceCoachUsage,
 } from "./types";
 
 export { ApiError, API_BASE_URL, WS_BASE_URL, setUnauthenticatedHandler } from "./client";
@@ -182,8 +187,10 @@ export const createRoom = (body: RoomCreate) =>
 
 export const joinRoom = (roomId: string, body: { display_name?: string; password?: string } = {}) =>
   apiRequest<Room>(`/rooms/${roomId}/join`, { method: "POST", body });
-export const leaveRoom = (roomId: string) =>
-  apiRequest<Room>(`/rooms/${roomId}/leave`, { method: "POST" });
+/** Leave a room. Pass `keepalive` when the page is closing, so the request
+ *  still reaches the server after the tab is gone. */
+export const leaveRoom = (roomId: string, opts: { keepalive?: boolean } = {}) =>
+  apiRequest<Room>(`/rooms/${roomId}/leave`, { method: "POST", keepalive: opts.keepalive });
 
 /** Owner-only: mute, unmute, or kick a member (PRD §8.3). */
 export const moderateRoom = (
@@ -275,6 +282,25 @@ export async function transcribe(audio: Blob, language?: string): Promise<Transc
   return (await res.json()) as TranscriptionResult;
 }
 
+// ----- AI voice coach (Warm-up, Gemini Live — PRD §8.12) -----
+
+/** Today's AI voice minutes. `enabled: false` means the server has no Gemini key. */
+export const voiceCoachUsage = () => apiRequest<VoiceCoachUsage>("/voice-coach/usage");
+
+/** Start a session. Returns a ONE-USE Gemini Live token with the model, the coach
+ *  instructions and a hard end time locked inside it. 429 when today's minutes
+ *  are used up. */
+export const startVoiceCoachSession = (body: { topic_id: string | null }) =>
+  apiRequest<VoiceCoachSession>("/voice-coach/sessions", { method: "POST", body });
+
+/** End a session so its unused minutes come back. Safe to call twice. Pass
+ *  `keepalive` when the page is closing. */
+export const endVoiceCoachSession = (id: string, opts: { keepalive?: boolean } = {}) =>
+  apiRequest<VoiceCoachSessionEnded>(`/voice-coach/sessions/${id}/end`, {
+    method: "POST",
+    keepalive: opts.keepalive,
+  });
+
 // ----- Admin panel (docs/11_Security.md 11.9) -----
 //
 // Every call here is admin-only on the server. The client guard in
@@ -336,3 +362,13 @@ export const adminAudit = (limit = 100) =>
 /** File a report about another learner. Any signed-in user, not just admins. */
 export const reportUser = (body: ReportCreate) =>
   apiRequest<AbuseReport>("/moderation/reports", { method: "POST", body });
+
+// ----- Practice history (PRD 8.13) -----
+
+/** The rooms I joined, newest first, with a summary of my own feedback. */
+export const myHistory = (limit = 50) =>
+  apiRequest<HistoryItem[]>("/history/me", { query: { limit } });
+
+/** A room's conversation, oldest first. Only for people who were in that room. */
+export const roomTranscript = (roomId: string, params: { limit?: number; before?: string } = {}) =>
+  apiRequest<TranscriptPage>(`/transcripts/rooms/${roomId}`, { query: params });

@@ -503,6 +503,38 @@ export type TranscriptionResult = {
   provider: string;
 };
 
+// ----- AI voice coach (Warm-up, Gemini Live — PRD §8.12) -----
+
+/** Today's AI voice minutes. `enabled: false` = the server has no Gemini key. */
+export type VoiceCoachUsage = {
+  enabled: boolean;
+  daily_limit_seconds: number;
+  used_seconds: number;
+  remaining_seconds: number;
+  session_max_seconds: number;
+  resets_at: string;
+};
+
+export type VoiceCoachSession = {
+  id: string;
+  /** One-use Gemini Live token. Pass it to the SDK as its `apiKey`. */
+  token: string;
+  /** The model the token is locked to — connect with exactly this one. */
+  model: string;
+  expires_at: string;
+  max_seconds: number;
+  /** Left today after this session's full limit is held. */
+  remaining_seconds: number;
+  topic_title: string | null;
+  questions: string[];
+};
+
+export type VoiceCoachSessionEnded = {
+  id: string;
+  used_seconds: number;
+  remaining_seconds: number;
+};
+
 export type RoomDeleted = {
   id: string;
   /** How many people were still in the room. Deleting a busy one ejects them. */
@@ -680,4 +712,51 @@ export type AdminOverview = {
   spend_today_usd: string;
   spend_month_usd: string;
   topics_without_questions: number;
+};
+
+// ----- Transcripts (PRD 8.9) -----
+
+export type TranscriptSegment = {
+  id: string;
+  room_id: string;
+  user_id: string;
+  /** Snapshot of the name used in the room, so an incognito alias stays an alias. */
+  speaker_name: string;
+  text: string;
+  language: string | null;
+  source: string;
+  seq: number;
+  spoken_at: string;
+  stt_confidence: number | null;
+};
+
+export type TranscriptPage = {
+  /** Oldest first. */
+  segments: TranscriptSegment[];
+  /** Pass as `before` to get the previous page; null at the start. */
+  next_before: string | null;
+};
+
+// ----- Practice history (PRD 8.13) -----
+
+export type HistoryItem = {
+  /** Null when the room was deleted; its band report is still shown. */
+  room_id: string | null;
+  room_title: string | null;
+  topic: string | null;
+  level: string | null;
+  mode: ConversationMode | null;
+  kind: RoomKind | null;
+  room_exists: boolean;
+  first_joined_at: string;
+  last_seen_at: string;
+  /** Times joined. Null for a deleted room. */
+  visits: number | null;
+  lines_spoken: number;
+  sentences_checked: number;
+  sentences_with_mistakes: number;
+  band_overall: number | null;
+  band_is_estimate: boolean | null;
+  report_summary: string | null;
+  report_id: string | null;
 };

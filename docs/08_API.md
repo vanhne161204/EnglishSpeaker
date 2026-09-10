@@ -338,6 +338,50 @@ optional `language`. Powered by offline **faster-whisper** (open-source, no LLM)
 when installed; otherwise a labelled stub. Returns
 `{ "text": "...", "language": "en", "provider": "whisper" | "stub" }`.
 
+## AI Voice Coach (Warm-up)
+
+Voice-to-voice practice with Gemini Live (PRD §8.12). All three endpoints need
+sign-in. The browser opens the Gemini session itself; the server only issues the
+token, keeps the daily allowance, and closes the books.
+
+### `GET /voice-coach/usage`
+Today's allowance. `enabled: false` means the server has no `GEMINI_API_KEY`.
+
+```json
+{ "enabled": true, "daily_limit_seconds": 900, "used_seconds": 120,
+  "remaining_seconds": 780, "session_max_seconds": 600,
+  "resets_at": "2026-09-11T00:00:00Z" }
+```
+
+### `POST /voice-coach/sessions`
+Start a session. Body: `{ "topic_id": "<uuid>" | null }` (`null` = general warm-up).
+Returns `201`:
+
+```json
+{ "id": "…", "token": "auth_tokens/…", "model": "gemini-3.1-flash-live-preview",
+  "expires_at": "…", "max_seconds": 600, "remaining_seconds": 300,
+  "topic_title": "Travel", "questions": ["Where did you go last summer?"] }
+```
+
+- `token` is a Gemini **ephemeral token**: one use, it must open a session within
+  60 seconds, and Gemini rejects audio after `expires_at`. The model, the coach
+  instructions and the output settings are locked inside it.
+- Connect with `new GoogleGenAI({ apiKey: token, apiVersion: "v1beta" })`, then
+  `ai.live.connect({ model })`.
+- `remaining_seconds` is what is left today **after** this session's full limit is held.
+- Errors: `401` not signed in · `404` unknown topic · `429 voice_coach_limit` no
+  minutes left, or another session is still open · `503 voice_coach_unavailable`
+  no key, or the monthly AI budget is spent · `502 voice_coach_failed` Gemini
+  refused the token. Rate limit: 10 starts per minute.
+
+### `POST /voice-coach/sessions/{id}/end`
+End a session and give back the unused time. Time is measured by the server
+clock. Calling it twice is safe. `404` if the session is not yours.
+
+```json
+{ "id": "…", "used_seconds": 184, "remaining_seconds": 716 }
+```
+
 ## Sentence Notes
 
 ### `GET /notes` / `POST /notes`

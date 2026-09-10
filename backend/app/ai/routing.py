@@ -42,6 +42,10 @@ class AiTask(StrEnum):
     #: browser's own engine, which is free and never gets here; this covers the
     #: upload fallback and Deepgram. NOT an LLM task — see `LLM_TASKS`.
     transcription = "transcription"
+    #: Warm-up AI voice coach (Gemini Live, PRD §8.12). NOT an LLM task either:
+    #: the browser streams audio to Gemini with a token we mint, so there is no
+    #: model chain to route. Billed per second of open session.
+    voice_coach = "voice_coach"
 
 
 #: The tasks that go through the LLM router: they need a model chain, a token

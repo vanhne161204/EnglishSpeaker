@@ -104,3 +104,55 @@ def deepgram_cost(duration_s: float | None) -> Decimal:
     if not duration_s or duration_s <= 0:
         return Decimal(0)
     return (Decimal(str(duration_s)) / Decimal(60)) * DEEPGRAM_PER_MINUTE
+
+
+# --- Gemini Live (voice-to-voice, PRD §8.12) -------------------------------
+#
+# Paid tier, from ai.google.dev/gemini-api/docs/pricing. Live bills audio as
+# tokens: 25 tokens per second of audio, in both directions.
+#
+# The server never sees the audio — the browser streams it straight to Google —
+# so the cost is an ESTIMATE from session length. The learner's mic is streamed
+# for the whole session (silence included), and the coach is assumed to talk
+# for half of it. Reconcile against the Google invoice before quoting a margin.
+
+GEMINI_PRICES_VERIFIED_ON = date(2026, 9, 10)
+
+GEMINI_LIVE_AUDIO_TOKENS_PER_SECOND = 25
+GEMINI_LIVE_ASSUMED_COACH_TALK_SHARE = _d("0.5")
+
+_DEFAULT_LIVE_MODEL = "gemini-3.1-flash-live-preview"
+
+
+@dataclass(frozen=True, slots=True)
+class AudioPrice:
+    """USD per 1M audio tokens."""
+
+    input_per_mtok: Decimal
+    output_per_mtok: Decimal
+
+
+GEMINI_LIVE_PRICES: dict[str, AudioPrice] = {
+    _DEFAULT_LIVE_MODEL: AudioPrice(_d("3.00"), _d("12.00")),
+    "gemini-2.5-flash-native-audio-preview-12-2025": AudioPrice(_d("3.00"), _d("12.00")),
+}
+
+
+def gemini_live_tokens(seconds: int) -> tuple[int, int]:
+    """(audio tokens in, audio tokens out), estimated for a session this long."""
+    tokens_in = max(seconds, 0) * GEMINI_LIVE_AUDIO_TOKENS_PER_SECOND
+    tokens_out = int(Decimal(tokens_in) * GEMINI_LIVE_ASSUMED_COACH_TALK_SHARE)
+    return tokens_in, tokens_out
+
+
+def gemini_live_cost(model: str, seconds: int) -> Decimal:
+    """Estimated cost of one Live session.
+
+    An unknown model is priced like the default one, not as free: a model
+    missing from the table must not make the voice coach look cheap.
+    """
+    price = GEMINI_LIVE_PRICES.get(model, GEMINI_LIVE_PRICES[_DEFAULT_LIVE_MODEL])
+    tokens_in, tokens_out = gemini_live_tokens(seconds)
+    return (
+        Decimal(tokens_in) * price.input_per_mtok + Decimal(tokens_out) * price.output_per_mtok
+    ) / _PER_MILLION
