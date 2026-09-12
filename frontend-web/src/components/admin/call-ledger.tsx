@@ -23,6 +23,8 @@ const TASKS = [
   "ielts_report",
   "transcription",
   "voice_coach",
+  "shadowing_tts",
+  "pronunciation",
 ];
 
 const TASK_LABELS: Record<string, string> = {
@@ -33,6 +35,8 @@ const TASK_LABELS: Record<string, string> = {
   ielts_report: "IELTS report",
   transcription: "Speech-to-text",
   voice_coach: "AI voice coach",
+  shadowing_tts: "Shadowing voices",
+  pronunciation: "Pronunciation (Azure)",
 };
 
 /** Enough decimal places that a fraction of a cent is still a number. */

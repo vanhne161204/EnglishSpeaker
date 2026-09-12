@@ -76,7 +76,7 @@ class GeminiLiveTokenMinter:
         except TimeoutError as exc:
             raise ProviderTimeout("gemini", "token request timed out") from exc
         except errors.APIError as exc:
-            raise _translate(exc) from exc
+            raise translate_error(exc) from exc
         except Exception as exc:  # noqa: BLE001 — connection errors from the HTTP client
             raise ProviderUnavailable("gemini", str(exc)) from exc
         if not token.name:
@@ -84,7 +84,7 @@ class GeminiLiveTokenMinter:
         return LiveToken(token=token.name, model=self.model, provider=self.name)
 
 
-def _translate(exc: Any) -> ProviderError:
+def translate_error(exc: Any) -> ProviderError:
     code = int(getattr(exc, "code", 0) or 0)
     if code == 429:
         return ProviderRateLimited("gemini")

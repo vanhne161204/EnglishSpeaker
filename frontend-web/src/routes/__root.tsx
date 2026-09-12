@@ -144,6 +144,7 @@ const PUBLIC_NAV = [
 const APP_NAV = [
   { to: "/", label: "Home" },
   { to: "/warmup", label: "Warm-up" },
+  { to: "/shadowing", label: "Shadowing" },
   { to: "/rooms", label: "Rooms" },
   { to: "/match", label: "Match" },
   { to: "/topics", label: "Topics" },

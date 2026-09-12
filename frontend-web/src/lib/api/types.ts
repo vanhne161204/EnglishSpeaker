@@ -582,6 +582,9 @@ export type AdminUserUpdate = {
 // and this is a bill.
 export type SpendByTask = { task: string; cost_usd: string; calls: number };
 
+/** One vendor's share — a line to check against that vendor's own invoice. */
+export type SpendByProvider = { provider: string; cost_usd: string; calls: number };
+
 export type SpendByUser = {
   user_id: string;
   username: string | null;
@@ -614,6 +617,8 @@ export type AiSpendSummary = {
   calls: number;
   by_day: SpendByDay[];
   by_task: SpendByTask[];
+  /** Per vendor. Audio vendors (Azure, Gemini) are estimated from audio length. */
+  by_provider: SpendByProvider[];
   by_user: SpendByUser[];
   health: ModelHealth[];
 };

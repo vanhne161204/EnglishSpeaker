@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WarmupRouteImport } from './routes/warmup'
+import { Route as ShadowingRouteImport } from './routes/shadowing'
 import { Route as SafetyRouteImport } from './routes/safety'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as PricingRouteImport } from './routes/pricing'
@@ -32,6 +33,11 @@ import { Route as HistoryRoomIdRouteImport } from './routes/history.$roomId'
 const WarmupRoute = WarmupRouteImport.update({
   id: '/warmup',
   path: '/warmup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ShadowingRoute = ShadowingRouteImport.update({
+  id: '/shadowing',
+  path: '/shadowing',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SafetyRoute = SafetyRouteImport.update({
@@ -138,6 +144,7 @@ export interface FileRoutesByFullPath {
   '/pricing': typeof PricingRoute
   '/profile': typeof ProfileRoute
   '/safety': typeof SafetyRoute
+  '/shadowing': typeof ShadowingRoute
   '/warmup': typeof WarmupRoute
   '/history/$roomId': typeof HistoryRoomIdRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
@@ -159,6 +166,7 @@ export interface FileRoutesByTo {
   '/pricing': typeof PricingRoute
   '/profile': typeof ProfileRoute
   '/safety': typeof SafetyRoute
+  '/shadowing': typeof ShadowingRoute
   '/warmup': typeof WarmupRoute
   '/history/$roomId': typeof HistoryRoomIdRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
@@ -181,6 +189,7 @@ export interface FileRoutesById {
   '/pricing': typeof PricingRoute
   '/profile': typeof ProfileRoute
   '/safety': typeof SafetyRoute
+  '/shadowing': typeof ShadowingRoute
   '/warmup': typeof WarmupRoute
   '/history/$roomId': typeof HistoryRoomIdRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
@@ -204,6 +213,7 @@ export interface FileRouteTypes {
     | '/pricing'
     | '/profile'
     | '/safety'
+    | '/shadowing'
     | '/warmup'
     | '/history/$roomId'
     | '/rooms/$roomId'
@@ -225,6 +235,7 @@ export interface FileRouteTypes {
     | '/pricing'
     | '/profile'
     | '/safety'
+    | '/shadowing'
     | '/warmup'
     | '/history/$roomId'
     | '/rooms/$roomId'
@@ -246,6 +257,7 @@ export interface FileRouteTypes {
     | '/pricing'
     | '/profile'
     | '/safety'
+    | '/shadowing'
     | '/warmup'
     | '/history/$roomId'
     | '/rooms/$roomId'
@@ -268,6 +280,7 @@ export interface RootRouteChildren {
   PricingRoute: typeof PricingRoute
   ProfileRoute: typeof ProfileRoute
   SafetyRoute: typeof SafetyRoute
+  ShadowingRoute: typeof ShadowingRoute
   WarmupRoute: typeof WarmupRoute
   HistoryRoomIdRoute: typeof HistoryRoomIdRoute
   RoomsRoomIdRoute: typeof RoomsRoomIdRoute
@@ -284,6 +297,13 @@ declare module '@tanstack/react-router' {
       path: '/warmup'
       fullPath: '/warmup'
       preLoaderRoute: typeof WarmupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/shadowing': {
+      id: '/shadowing'
+      path: '/shadowing'
+      fullPath: '/shadowing'
+      preLoaderRoute: typeof ShadowingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/safety': {
@@ -428,6 +448,7 @@ const rootRouteChildren: RootRouteChildren = {
   PricingRoute: PricingRoute,
   ProfileRoute: ProfileRoute,
   SafetyRoute: SafetyRoute,
+  ShadowingRoute: ShadowingRoute,
   WarmupRoute: WarmupRoute,
   HistoryRoomIdRoute: HistoryRoomIdRoute,
   RoomsRoomIdRoute: RoomsRoomIdRoute,

@@ -779,6 +779,105 @@ Why this matters:
 - Progress is what brings a learner back. Past feedback shows what they improved and what to practice next.
 - A learner who left without a report can still get one later.
 
+## 8.14 Shadowing
+
+Shadowing is a speaking drill. The learner hears a short sentence in a clear
+model voice, then says it straight back, copying the words, the rhythm and the
+intonation. It trains the ear and the mouth together, one sentence at a time.
+
+User flow:
+
+- The user opens **Shadowing** from the menu and chooses a topic.
+- The app shows one sentence at a time, with its Vietnamese meaning when there
+  is one. The user can hide the text to practise by ear only.
+- The user plays the model voice at normal speed or slower (0.75×), as often as
+  they like.
+- The user records a try, then plays their own voice and the model voice one
+  after the other to hear the difference.
+- The app shows which words it heard correctly, which were close, and which were
+  missed, and whether the pace was too slow or too fast.
+- The user moves to the next sentence. Each sentence keeps the user's best score.
+
+Where the sentences come from:
+
+- The topic's published documentation (8.2): its questions, the examples of its
+  answer templates, its phrases, and the example sentences of its vocabulary and
+  phrases. There is no separate content to write.
+- Only sentences of 2–25 words are used, each one once, at most 40 per topic.
+
+Rules:
+
+- Sign-in is required.
+- **The score is a word match, not a pronunciation score.** Speech-to-text
+  guesses words from context, so a badly pronounced word can still come back
+  right. The app calls it "word match" and never "pronunciation"
+  (docs/10_AI_Design.md §10.3.11).
+- The learner's recording stays in the browser. The server keeps only the words
+  it heard and the score. The one exception is Phase 2: the learner can choose
+  to send a try to Azure for a pronunciation check (see below). Even then, it is
+  not stored.
+- Speech-to-text runs in the browser for free (Chrome, Edge, Safari). A browser
+  without it (Firefox) sends the clip to the server's speech-to-text instead.
+- When the model voice is not available, the browser's own voice reads the sentence.
+
+Phases:
+
+| Phase | What | Extra cost per month |
+|---|---|---|
+| 0 — Spike | Try Azure Pronunciation Assessment on real Vietnamese learner recordings (`backend/scripts/check_azure_pronunciation.py`), and check the free F0 tier covers it | 0 |
+| 1 — MVP | Model voices, player with speed control, record + A/B, word-match score, best score per sentence | about 0 |
+| 2 — Deep scoring | Real pronunciation scores from Azure (accuracy, fluency, completeness, prosody), a few per day, metered and capped | about 60k–255k VND |
+| 3 — Extras | Short dialogues, shadowing while the voice plays (headphones), intonation curve, review of weak sentences | 0 |
+
+Phase 1 cost:
+
+- Model voices are made **once per sentence** with Gemini text-to-speech
+  (`gemini-3.1-flash-tts-preview`: $1 per 1M text tokens in, $20 per 1M audio
+  tokens out, checked 2026-09-10). That is about $0.002 per sentence, or about $2
+  for 1,000 sentences, paid once.
+- The clips are stored in Postgres: no new service, and `backup.sh` already
+  covers them. Move them to object storage (Cloudflare R2) if they pass about 1 GB.
+- Word matching runs on our server and costs nothing. Browser speech-to-text
+  costs nothing; the Firefox fallback costs $0.0043 per audio minute (Deepgram).
+
+### Phase 2 — deep pronunciation check
+
+After a try, the learner can press **Check pronunciation**. The recording and the
+sentence go to Microsoft Azure Pronunciation Assessment, and the app shows:
+
+- **Accuracy**: how close each word's sounds are to a native speaker (0–100).
+  Names and non-English words (for example "Da Nang") are shown in grey but not
+  counted. Azure scores them against English sounds, so in Phase 0 even a
+  native-like voice got only 61 and 67 on "Da Nang".
+- **Fluency**, **Completeness** and **Prosody** (stress, rhythm, intonation), as Azure reports them.
+- Every word coloured by its accuracy, with words that were not said marked.
+
+Rules:
+
+- The recording leaves the browser **only** when the learner presses the button.
+  It goes to Microsoft to be scored; our server passes it through and does not keep it.
+- A few checks a day: Free 3, Premium 30 (settings). A check that fails on
+  Azure's side does not use one up.
+- Every check is metered in `ai_usage` (task `pronunciation`, provider `azure`)
+  at the pay-as-you-go list price: $1.00 per audio hour, plus $0.30 per hour for
+  the prosody add-on (prices.azure.com, checked 2026-09-12, same in Southeast
+  Asia and Central India). It counts toward the monthly AI budget. The admin
+  panel shows spend per vendor.
+- Off unless `AZURE_SPEECH_KEY` is set.
+- The browser converts the recording to 16 kHz mono WAV (Azure's REST format),
+  at most 30 seconds.
+- The dev deployment uses an **Azure for Students** resource in Central India
+  (the only Speech regions that subscription allows are Central India and Japan
+  East). Its terms are non-commercial, so production needs a pay-as-you-go
+  subscription, preferably in Southeast Asia, near the EC2 server.
+
+Phase 0 results (2026-09-12):
+
+- A native-like TTS voice scored Pron 90.6, Accuracy 86, Fluency 95, Prosody 86.
+- Audio of "ship", scored against the text "sheep", gave `sheep` an accuracy of 35
+  with `Mispronunciation`, while the other words scored 80–100.
+- Tests with real learner voices are done on the dev deployment.
+
 ## 9. User Types
 
 ### Lightweight Profile

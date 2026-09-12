@@ -26,6 +26,19 @@ function money(value: string): string {
 
 const WINDOWS = [7, 30, 90] as const;
 
+/** `ai_usage.provider` → the name on the invoice. */
+const VENDOR_LABEL: Record<string, string> = {
+  azure: "Microsoft Azure",
+  gemini: "Google Gemini",
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  deepgram: "Deepgram",
+  google: "Google Translate",
+  whisper: "Whisper (our server)",
+  argos: "Argos (our server)",
+  stub: "Demo stub",
+};
+
 export function SpendPanel() {
   const [days, setDays] = useState<number>(30);
   const spendQ = useQuery({
@@ -46,6 +59,9 @@ export function SpendPanel() {
 
   const s = spendQ.data!;
   const taskTotal = s.by_task.reduce((sum, t) => sum + Number(t.cost_usd), 0);
+  // An older API has no per-vendor view; show the card empty rather than crash.
+  const vendors = s.by_provider ?? [];
+  const vendorTotal = vendors.reduce((sum, v) => sum + Number(v.cost_usd), 0);
 
   return (
     <div className="space-y-5">
@@ -137,6 +153,39 @@ export function SpendPanel() {
           </p>
         </Card>
       </div>
+
+      <Card title="Spend by vendor">
+        {vendors.length === 0 ? (
+          <Empty>No AI calls in this window.</Empty>
+        ) : (
+          <ul className="space-y-3">
+            {vendors.map((v) => {
+              const share = vendorTotal > 0 ? (Number(v.cost_usd) / vendorTotal) * 100 : 0;
+              return (
+                <li key={v.provider}>
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="font-medium text-foreground">
+                      {VENDOR_LABEL[v.provider] ?? v.provider}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {money(v.cost_usd)} · {v.calls} call{v.calls === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div className="h-full bg-primary" style={{ width: `${share}%` }} />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <p className="mt-4 text-xs text-muted-foreground leading-relaxed">
+          One line per bill. Audio vendors are estimates: Azure (pronunciation checks) and Gemini
+          (model voices, voice coach) are logged as audio length × list price. A free Azure F0
+          resource is billed $0 but still shows the pay-as-you-go price here. For the real invoice,
+          open Azure Cost Management or Google AI Studio → Spend.
+        </p>
+      </Card>
 
       <Card title="Provider health, last 24 hours">
         {s.health.length === 0 ? (

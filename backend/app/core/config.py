@@ -132,6 +132,28 @@ class Settings(BaseSettings):
     # connection about every 10 minutes, and we do not do session resumption.
     voice_coach_session_max_seconds: int = 10 * 60
 
+    # --- Shadowing (PRD §8.14) ---
+    # Model voices for Shadowing sentences are made with Gemini TTS, using the
+    # same GEMINI_API_KEY. One clip per sentence, stored in Postgres, so the cost
+    # is one-off (about $0.002 a sentence). Without a key, the browser's own voice
+    # reads the sentence instead.
+    shadowing_tts_model: str = "gemini-3.1-flash-tts-preview"
+    shadowing_tts_voice: str = "Kore"
+
+    # --- Shadowing Phase 2: pronunciation checks (Azure Speech) ---
+    # Unset key = off; the word match of Phase 1 keeps working. A key only works
+    # in its own region. The dev box uses an Azure for Students resource in
+    # centralindia; production needs pay-as-you-go (Students terms are
+    # non-commercial). See PRD §8.14.
+    azure_speech_key: str | None = None
+    azure_speech_region: str = "southeastasia"
+    # Full recognition URL, for resources that reject the regional endpoint.
+    azure_speech_endpoint: str | None = None
+    # The prosody score (stress, rhythm, intonation) is a +$0.30/hour add-on.
+    pronunciation_prosody: bool = True
+    pronunciation_free_daily: int = 3
+    pronunciation_premium_daily: int = 30
+
     # --- CORS ---
     # Exact frontend origins allowed to call the API (credentials-safe — no "*").
     # Override in production with your real domain(s), e.g.

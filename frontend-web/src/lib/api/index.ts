@@ -80,6 +80,7 @@ import type {
 
 export { ApiError, API_BASE_URL, WS_BASE_URL, setUnauthenticatedHandler } from "./client";
 export type * from "./types";
+export * from "./shadowing";
 
 // ----- System -----
 export const getHealth = () =>

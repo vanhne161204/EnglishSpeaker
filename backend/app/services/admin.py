@@ -48,6 +48,7 @@ from app.schemas.admin import (
     ReportCreate,
     ReportReview,
     SpendByDay,
+    SpendByProvider,
     SpendByTask,
     SpendByUser,
 )
@@ -202,6 +203,11 @@ class AdminService:
             for task, cost, calls in await self.usage.cost_by_task(days)
         ]
 
+        by_provider = [
+            SpendByProvider(provider=provider, cost_usd=_money(cost), calls=calls)
+            for provider, cost, calls in await self.usage.cost_by_provider(days)
+        ]
+
         by_user: list[SpendByUser] = []
         for user_id, cost, calls in await self.usage.cost_per_user(days, limit=top):
             user = await self.users.get(user_id)
@@ -233,6 +239,7 @@ class AdminService:
             calls=await self.usage.count_calls(days),
             by_day=by_day,
             by_task=by_task,
+            by_provider=by_provider,
             by_user=by_user,
             health=health,
         )

@@ -17,6 +17,7 @@ from app.api.v1.routes import (
     questions,
     reports,
     rooms,
+    shadowing,
     topics,
     transcription,
     transcripts,
@@ -40,6 +41,7 @@ api_router.include_router(notes.router)
 api_router.include_router(translation.router)
 api_router.include_router(transcription.router)
 api_router.include_router(voice_coach.router)
+api_router.include_router(shadowing.router)
 api_router.include_router(transcripts.router)
 api_router.include_router(history.router)
 api_router.include_router(users.router)

@@ -607,6 +607,46 @@ CREATE INDEX ix_ai_voice_sessions_user_created ON ai_voice_sessions (user_id, cr
 > An open session counts its full `max_seconds` against the allowance until it ends.
 > Each closed session also writes one `ai_usage` row (`task = 'voice_coach'`).
 
+**Shadowing (PRD §8.14).** Model voices are made once per sentence and reused by
+everyone. A learner's recording is never stored — only the words heard and the score.
+
+```sql
+CREATE TABLE shadowing_clips (
+    id           uuid PRIMARY KEY,
+    text_hash    varchar(64) NOT NULL UNIQUE,   -- sha256(model, voice, text): an edited sentence gets a new clip
+    text         text NOT NULL,
+    provider     varchar(24) NOT NULL,
+    model        varchar(64) NOT NULL,
+    voice        varchar(40) NOT NULL,
+    mime_type    varchar(40) NOT NULL,          -- audio/wav
+    duration_ms  integer NOT NULL,
+    data         bytea NOT NULL,                -- about 200 KB for a 4-second clip
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE shadowing_attempts (
+    id              uuid PRIMARY KEY,
+    user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    topic_id        uuid NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+    item_key        varchar(80) NOT NULL,       -- "question-<uuid>", "answer-<uuid>", "term-<uuid>", "example-<uuid>"
+    reference_text  text NOT NULL,
+    heard_text      text NOT NULL,
+    score           integer NOT NULL,           -- word match 0-100, NOT pronunciation
+    words_total     integer NOT NULL,
+    words_ok        integer NOT NULL,
+    duration_ms     integer,
+    reference_ms    integer,
+    engine          varchar(16) NOT NULL,       -- browser | server
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_shadowing_attempts_user_topic ON shadowing_attempts (user_id, topic_id, created_at);
+```
+
+> `item_key` is not a foreign key: it can point at a question, an answer template
+> or a doc item. Each generated clip writes one `ai_usage` row (`task = 'shadowing_tts'`).
+
 ### 6.9 Subscription, Plans, and Usage
 
 ```sql

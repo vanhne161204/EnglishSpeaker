@@ -33,9 +33,18 @@ class AiUsageRepository:
         return Decimal(str((await self.session.execute(stmt)).scalar_one()))
 
     async def call_count_since(
-        self, since: datetime, user_id: uuid.UUID, task: str | None = None
+        self,
+        since: datetime,
+        user_id: uuid.UUID,
+        task: str | None = None,
+        *,
+        ok_only: bool = False,
     ) -> int:
-        """How many calls this user made since ``since`` — drives the per-task caps."""
+        """How many calls this user made since ``since`` — drives the per-task caps.
+
+        ``ok_only`` skips failed calls, for caps where a vendor error must not
+        use up the learner's allowance (pronunciation checks).
+        """
         stmt = (
             select(func.count())
             .select_from(AiUsage)
@@ -43,7 +52,25 @@ class AiUsageRepository:
         )
         if task is not None:
             stmt = stmt.where(AiUsage.task == task)
+        if ok_only:
+            stmt = stmt.where(AiUsage.ok.is_(True))
         return int((await self.session.execute(stmt)).scalar_one())
+
+    async def cost_by_provider(self, days: int = 30) -> list[tuple[str, Decimal, int]]:
+        """(provider, total cost, call count) — one line per vendor invoice.
+
+        The by-task view answers "which feature"; this one answers "which bill",
+        so each line can be checked against that vendor's own billing page.
+        """
+        since = datetime.now(UTC) - timedelta(days=days)
+        stmt = (
+            select(AiUsage.provider, func.sum(AiUsage.cost_usd), func.count())
+            .where(AiUsage.created_at >= since)
+            .group_by(AiUsage.provider)
+            .order_by(func.sum(AiUsage.cost_usd).desc())
+        )
+        rows = (await self.session.execute(stmt)).all()
+        return [(provider, Decimal(str(cost or 0)), count) for provider, cost, count in rows]
 
     async def cost_by_task(self, days: int = 7) -> list[tuple[str, Decimal, int]]:
         """(task, total cost, call count) — which feature is eating the budget."""

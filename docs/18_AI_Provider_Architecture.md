@@ -920,3 +920,49 @@ Google invoice before quoting a margin.
 * **Abandoned sessions settle lazily** — on that learner's next request. An
   admin spend report can lag until then; a periodic sweep would close the gap.
 * **The token request is experimental** in the SDK and may change shape.
+
+## 18.14 The text-to-speech port (Shadowing)
+
+Shadowing (PRD §8.14) needs a model voice for each sentence. `Synthesizer`
+(`app/ai/tts_port.py`) takes text and returns a finished WAV clip.
+`GeminiSynthesizer` (`app/ai/providers/gemini_tts.py`) wraps Gemini's raw 16-bit
+PCM (24 kHz; the rate is read from the response's MIME type) in a WAV header.
+
+The port is called **once per sentence, not per play.** `ShadowingService` stores
+each clip in `shadowing_clips`, keyed by `sha256(model, voice, text)`:
+
+* the same sentence in two topics shares one clip;
+* an edited sentence gets a new clip instead of a stale recording;
+* changing `SHADOWING_TTS_VOICE` makes new clips on the next play.
+
+Each generated clip writes one `ai_usage` row (`task = "shadowing_tts"`), priced
+from the tokens Gemini reports (`gemini_tts_cost`). If Gemini reports none, the
+audio tokens are estimated from the clip length (25 per second). When no key is
+set, the TTS call fails, or the org monthly budget is spent, the audio endpoint
+answers `503` and the browser reads the sentence with its own voice.
+
+## 18.15 The pronunciation port (Shadowing deep scoring)
+
+`PronunciationAssessor` (`app/ai/pronunciation_port.py`) takes a 16 kHz mono WAV
+and the sentence the learner was reading, and returns phoneme-based scores.
+Unlike speech-to-text, it is told the sentence first ("scripted" assessment). So
+it can say **how** a word was said, not only **which** word it heard, which a word
+match cannot do (docs/10_AI_Design.md §10.3.11).
+
+`AzurePronunciationAssessor` (`app/ai/providers/azure_pronunciation.py`) calls the
+REST API for short audio (at most 30 s) with a base64 `Pronunciation-Assessment`
+header. It was verified live in Phase 0 (`scripts/check_azure_pronunciation.py`).
+
+**Metering.** Azure bills per audio hour, and neither the request nor the
+response carries a price. `ShadowingService.assess` therefore records
+`seconds × list price` (`azure_pronunciation_cost`) in an `ai_usage` row:
+
+* `task = "pronunciation"`, `provider = "azure"`;
+* `input_tokens` holds the whole seconds of audio, the billing unit, as it does for Deepgram;
+* a free F0 resource bills $0, but the row still shows the pay-as-you-go price,
+  so the admin panel says what the feature **would** cost.
+
+The admin spend page groups by provider (`AiUsageRepository.cost_by_provider`),
+so each vendor's line can be checked against that vendor's invoice (Azure Cost
+Management). A failed call writes an `ok=False` row and does not use up the
+learner's daily check.

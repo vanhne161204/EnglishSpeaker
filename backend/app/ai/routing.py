@@ -46,6 +46,12 @@ class AiTask(StrEnum):
     #: the browser streams audio to Gemini with a token we mint, so there is no
     #: model chain to route. Billed per second of open session.
     voice_coach = "voice_coach"
+    #: Shadowing model voices (Gemini TTS, PRD §8.14). Made once per sentence
+    #: and stored, so this is a one-off cost per sentence. NOT an LLM task.
+    shadowing_tts = "shadowing_tts"
+    #: Shadowing deep pronunciation check (Azure, PRD §8.14 Phase 2). Billed per
+    #: audio hour. NOT an LLM task.
+    pronunciation = "pronunciation"
 
 
 #: The tasks that go through the LLM router: they need a model chain, a token

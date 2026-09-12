@@ -381,6 +381,19 @@ These live in `backend/app/core/config.py` and are loaded from environment varia
 | `voice_coach_premium_daily_seconds` | `VOICE_COACH_PREMIUM_DAILY_SECONDS` | `3600` | Premium plan: seconds per day. |
 | `voice_coach_session_max_seconds` | `VOICE_COACH_SESSION_MAX_SECONDS` | `600` | Cap on one session. Keep ≤ 600: Gemini resets a Live connection about every 10 minutes. |
 
+### Shadowing (PRD §8.14)
+
+| Setting | Env var | Default | Purpose |
+|---|---|---|---|
+| `shadowing_tts_model` | `SHADOWING_TTS_MODEL` | `gemini-3.1-flash-tts-preview` | Gemini TTS model for model voices. Uses `GEMINI_API_KEY`; without it the browser voice is used. |
+| `shadowing_tts_voice` | `SHADOWING_TTS_VOICE` | `Kore` | Prebuilt Gemini voice. Changing it makes new clips on the next play. |
+| `azure_speech_key` | `AZURE_SPEECH_KEY` | `null` | Azure Speech key for pronunciation checks (Phase 2). Unset = off. |
+| `azure_speech_region` | `AZURE_SPEECH_REGION` | `southeastasia` | Region of that resource (dev: `centralindia`). A key works only in its own region. |
+| `azure_speech_endpoint` | `AZURE_SPEECH_ENDPOINT` | `null` | Full recognition URL, for resources that reject the regional endpoint. |
+| `pronunciation_prosody` | `PRONUNCIATION_PROSODY` | `true` | Ask for the prosody score (+$0.30 per audio hour). |
+| `pronunciation_free_daily` | `PRONUNCIATION_FREE_DAILY` | `3` | Free plan: pronunciation checks per day. |
+| `pronunciation_premium_daily` | `PRONUNCIATION_PREMIUM_DAILY` | `30` | Premium plan: pronunciation checks per day. |
+
 ---
 
 ## 6. API-only types (not persisted)
@@ -397,6 +410,9 @@ These appear in request/response bodies but have **no database table**.
 | `ModerateResult` | Room moderation endpoints | Mute/kick actions (state partly in Redis). |
 | `Subscription` / `PlanLimits` | `/subscription` | Plan quotas (enforced in app logic). |
 | `VoiceCoachUsage` / `VoiceSessionStarted` / `VoiceSessionEnded` | `/voice-coach/*` | AI voice coach allowance, one-use token, and session close. |
+| `ShadowingItemList` / `ShadowingAttemptCreate` / `ShadowingResult` | `/shadowing/*` | Sentences to shadow, one try, and its word-match score. |
+| `PronunciationResult` | `POST /shadowing/assess` | Phase 2: Azure pronunciation check of one try (names not counted). |
+| `SpendByProvider` | `GET /admin/ai-spend` → `by_provider` | AI spend per vendor, to check against each vendor's invoice. |
 
 ---
 
@@ -420,6 +436,7 @@ Matching, presence, and rate limiting use Redis. Data here is **rebuildable or d
 | Admin topic management | `User.is_admin`, `Topic`, `Category` |
 | Study page / Warm-up Practice | `Doc`, `DocSection`, `DocItem`, `Question`, `AnswerTemplate` |
 | Warm-up AI voice coach | `AiVoiceSession`, `AiUsage` |
+| Shadowing | `ShadowingClip`, `ShadowingAttempt`, `AiUsage` |
 | Room lobby | `Room` |
 | Join / leave room | `Room`, `RoomParticipant` |
 | Chat history | `Message` |

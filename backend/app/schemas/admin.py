@@ -127,6 +127,14 @@ class AiCallPage(BaseModel):
     offset: int
 
 
+class SpendByProvider(BaseModel):
+    """One vendor's share: a line to check against that vendor's own invoice."""
+
+    provider: str
+    cost_usd: Decimal
+    calls: int
+
+
 class ModelHealth(BaseModel):
     """A rising degraded or failed count is an outage, visible before the bill."""
 
@@ -154,6 +162,9 @@ class AiSpendSummary(BaseModel):
     calls: int
     by_day: list[SpendByDay]
     by_task: list[SpendByTask]
+    #: Per vendor (azure, gemini, openai…). Audio vendors are estimated from
+    #: audio length × list price; see app/ai/pricing.py.
+    by_provider: list[SpendByProvider] = []
     by_user: list[SpendByUser]
     health: list[ModelHealth]
 

@@ -382,6 +382,84 @@ clock. Calling it twice is safe. `404` if the session is not yours.
 { "id": "…", "used_seconds": 184, "remaining_seconds": 716 }
 ```
 
+## Shadowing
+
+Listen-and-repeat drill (PRD §8.14). All endpoints need sign-in.
+
+### `GET /shadowing/topics/{topic_id}/items`
+The sentences to shadow in one topic, taken from its published doc, with my best
+score for each.
+
+```json
+{ "topic_id": "…", "topic_title": "Travel", "level": "A2", "voice_enabled": true,
+  "items": [ { "key": "question-…", "kind": "question", "text": "Where did you go last summer?",
+               "translation": "…", "audio_url": null, "best_score": 83, "attempts": 2 } ] }
+```
+
+- `kind` is `question`, `answer` (an answer template's example), `term` (a phrase)
+  or `example` (a vocabulary or phrase example).
+- `audio_url` is set only when an admin attached a recording. Otherwise fetch the
+  model voice with the endpoint below.
+- `voice_enabled: false` means the server cannot make model voices: use the browser's voice.
+- `404` for an unknown or unpublished topic. A topic whose doc is not published returns no items.
+
+### `GET /shadowing/topics/{topic_id}/items/{key}/audio`
+The model voice for one sentence, as `audio/wav`. Made with Gemini TTS the first
+time anyone asks, then served from the database. Sends an `ETag` and answers `304`
+to a matching `If-None-Match`.
+
+- `503 shadowing_voice_unavailable`: no TTS key, the TTS call failed, or the
+  monthly AI budget is spent. Fall back to the browser voice.
+- `404` if `key` is not a sentence of that topic. Rate limit: 120 per minute.
+
+### `POST /shadowing/attempts`
+Score one try and keep it. Returns `201`:
+
+```json
+// request
+{ "topic_id": "…", "item_key": "question-…", "heard_text": "where you go last summer",
+  "duration_ms": 2100, "reference_ms": 1900, "engine": "browser" }
+// response
+{ "score": 83,
+  "words": [ { "word": "Where", "heard": "where", "status": "ok" },
+             { "word": "did", "heard": null, "status": "missed" } ],
+  "extra": [], "tempo_ratio": 1.11, "tempo": "good", "best_score": 83, "attempts": 1 }
+```
+
+- `score` is a **word match** from 0 to 100, **not** a pronunciation score:
+  `ok` = 1, `close` (nearly the same spelling, e.g. "colour"/"color") = ½,
+  `wrong` or `missed` = 0. Contractions and small numbers are normalised first
+  ("I'm" = "I am", "5" = "five").
+- `tempo` compares the learner's speech time with the model voice: `slow` above
+  1.35×, `fast` below 0.75×, otherwise `good`. Null without both durations.
+- `engine`: `browser` (Web Speech API) or `server` (`POST /transcribe`).
+
+### `POST /shadowing/assess`
+Deep pronunciation check of one try, by Azure (PRD §8.14 Phase 2). Multipart form:
+`topic_id`, `item_key`, and `audio`. The audio must be a WAV file with 16-bit PCM,
+16 kHz, mono, 0.3–30 seconds long; the browser converts the recording. Returns `200`:
+
+```json
+{ "accuracy": 93.3, "fluency": 95.0, "completeness": 100.0, "prosody": 86.1,
+  "words": [ { "word": "went", "accuracy": 100.0, "error": "None", "is_name": false },
+             { "word": "da", "accuracy": 61.0, "error": "None", "is_name": true } ],
+  "heard": "I went to Da Nang with my family.", "seconds": 4.4, "remaining_today": 2 }
+```
+
+- `accuracy` is the mean word accuracy **without names**. A name is a capitalised
+  word that does not start a sentence. `prosody` is null when the add-on is off.
+- `error` uses Azure's terms: `None`, `Mispronunciation`, `Omission`, `Insertion`.
+- Errors:
+  - `503 pronunciation_unavailable`: no Azure key, or the AI budget is spent.
+  - `429 pronunciation_limit`: today's checks are used up.
+  - `400`: wrong audio format or length.
+  - `422 nothing_heard`: no speech in the recording.
+  - `502 pronunciation_failed`: Azure error. It does not use up a check.
+  - `404`: unknown sentence.
+- Rate limit: 20 per minute.
+- The item list (`GET /shadowing/topics/{id}/items`) also returns
+  `assess_enabled` and `assess_remaining`.
+
 ## Sentence Notes
 
 ### `GET /notes` / `POST /notes`

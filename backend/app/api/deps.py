@@ -7,8 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.factory import build_llm, build_transcriber, build_translator
 from app.ai.live_port import LiveTokenMinter
+from app.ai.pronunciation_port import PronunciationAssessor
+from app.ai.providers.azure_pronunciation import build_assessor
 from app.ai.providers.gemini_live import build_live_minter
+from app.ai.providers.gemini_tts import build_synthesizer
 from app.ai.routing import AiTask
+from app.ai.tts_port import Synthesizer
 from app.core.exceptions import AppError
 from app.core.security import decode_access_token
 from app.db.session import AsyncSessionLocal, get_session
@@ -35,6 +39,7 @@ from app.services.doc import DocService
 from app.services.match import MatchService
 from app.services.note import NoteService
 from app.services.room import RoomService
+from app.services.shadowing import ShadowingService
 from app.services.subscription import SubscriptionService
 from app.services.topic import TopicService
 from app.services.transcription import TranscriptionService
@@ -135,6 +140,32 @@ def get_voice_coach_service(
     topic's published questions, which become the coach's plan."""
     docs = DocService(DocRepository(session), TopicRepository(session))
     return VoiceCoachService(session, docs, minter)
+
+
+def get_synthesizer() -> Synthesizer | None:
+    """Gemini TTS for Shadowing model voices, or None when it is off.
+
+    Its own dependency so tests can swap in a fake without touching Google.
+    """
+    return build_synthesizer()
+
+
+def get_assessor() -> PronunciationAssessor | None:
+    """Azure pronunciation checks for Shadowing Phase 2, or None when off.
+
+    Its own dependency so tests can swap in a fake without calling Azure.
+    """
+    return build_assessor()
+
+
+def get_shadowing_service(
+    session: AsyncSession = Depends(get_session),
+    synthesizer: Synthesizer | None = Depends(get_synthesizer),
+    assessor: PronunciationAssessor | None = Depends(get_assessor),
+) -> ShadowingService:
+    """Wire Shadowing (PRD §8.14): sentences, stored model voices, word-match
+    scoring, and (Phase 2) Azure pronunciation checks."""
+    return ShadowingService(session, synthesizer, assessor)
 
 
 def get_user_service(session: AsyncSession = Depends(get_session)) -> UserService:

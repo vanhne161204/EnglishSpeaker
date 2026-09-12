@@ -156,3 +156,66 @@ def gemini_live_cost(model: str, seconds: int) -> Decimal:
     return (
         Decimal(tokens_in) * price.input_per_mtok + Decimal(tokens_out) * price.output_per_mtok
     ) / _PER_MILLION
+
+
+# --- Gemini text-to-speech (Shadowing, PRD §8.14) ---------------------------
+#
+# Paid tier, ai.google.dev/gemini-api/docs/pricing (checked 2026-09-10): text in
+# and audio out, per 1M tokens, audio at 25 tokens per second. A clip is made once
+# per sentence and stored, so this is a one-off cost, not a per-play one.
+
+
+@dataclass(frozen=True, slots=True)
+class TtsPrice:
+    """USD per 1M tokens."""
+
+    text_in_per_mtok: Decimal
+    audio_out_per_mtok: Decimal
+
+
+_DEFAULT_TTS_MODEL = "gemini-3.1-flash-tts-preview"
+
+GEMINI_TTS_PRICES: dict[str, TtsPrice] = {
+    _DEFAULT_TTS_MODEL: TtsPrice(_d("1.00"), _d("20.00")),
+    "gemini-2.5-flash-preview-tts": TtsPrice(_d("0.50"), _d("10.00")),
+}
+
+
+def gemini_tts_cost(
+    model: str, input_tokens: int, output_tokens: int, duration_ms: int
+) -> Decimal:
+    """Cost of one clip, from the tokens Gemini reported.
+
+    If it reported no output tokens, the audio tokens are estimated from the clip
+    length, so a missing usage block cannot make a clip look free. An unknown
+    model is priced like the default one, for the same reason.
+    """
+    price = GEMINI_TTS_PRICES.get(model, GEMINI_TTS_PRICES[_DEFAULT_TTS_MODEL])
+    audio_tokens = output_tokens or (
+        max(duration_ms, 0) * GEMINI_LIVE_AUDIO_TOKENS_PER_SECOND + 999
+    ) // 1000
+    return (
+        Decimal(max(input_tokens, 0)) * price.text_in_per_mtok
+        + Decimal(audio_tokens) * price.audio_out_per_mtok
+    ) / _PER_MILLION
+
+
+# --- Azure Pronunciation Assessment (Shadowing Phase 2, PRD §8.14) ------------
+#
+# Retail prices from prices.azure.com, checked 2026-09-12 and the same in
+# southeastasia and centralindia: "S1 Speech To Text" $1.00/hour and "S1 Speech to
+# Text Enhanced Feature Audio" $0.30/hour. Pronunciation assessment bills as
+# speech to text; the prosody score is the add-on (learn.microsoft.com, "How to
+# use pronunciation assessment in the Microsoft Foundry portal", Pricing).
+#
+# A free F0 resource bills nothing, but the ledger records the pay-as-you-go
+# price anyway, so the admin panel shows what the feature WOULD cost.
+
+AZURE_STT_PER_HOUR = _d("1.00")
+AZURE_PROSODY_ADDON_PER_HOUR = _d("0.30")
+
+
+def azure_pronunciation_cost(seconds: float, prosody: bool) -> Decimal:
+    """What one pronunciation check costs, from the length of the audio."""
+    per_hour = AZURE_STT_PER_HOUR + (AZURE_PROSODY_ADDON_PER_HOUR if prosody else Decimal(0))
+    return Decimal(str(max(seconds, 0.0))) * per_hour / Decimal(3600)
