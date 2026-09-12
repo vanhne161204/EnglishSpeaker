@@ -923,7 +923,11 @@ Admin flow (Admin → **Shadowing videos**):
 
 1. Paste a YouTube link. Add a title, a level, and the **source and permission**
    (for example "Creative Commons BY, channel X" or "our own channel").
-2. Paste the transcript, one sentence per line.
+2. Paste the transcript, one sentence per line. A line can also carry its times
+   and meaning, `start - end | sentence | meaning` (for example
+   `3:21.2 - 3:22.4 | Hi! Are you Anna? | Chào! Bạn là Anna phải không?`), so
+   a lesson timed elsewhere goes in with one paste. Lines without times are
+   timed in step 3.
 3. Play the video and press **Mark** (or the M key) at the start of the first
    sentence and at the end of each sentence. Fix any timing by hand: set it from
    the player, nudge it by 0.1 s, and preview the sentence.

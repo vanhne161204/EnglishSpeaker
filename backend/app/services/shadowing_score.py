@@ -85,6 +85,12 @@ _CONTRACTIONS: dict[str, str] = {
     "mustn't": "must not",
     "gonna": "going to",
     "wanna": "want to",
+    # Film and everyday speech (video lessons): speech-to-text writes either form.
+    "gotta": "got to",
+    "kinda": "kind of",
+    "outta": "out of",
+    "lemme": "let me",
+    "gimme": "give me",
 }
 
 _ONES = [

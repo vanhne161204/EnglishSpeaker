@@ -183,6 +183,22 @@ async def test_an_admin_builds_and_publishes_a_video(admin_client: AsyncClient) 
     assert {"video.create", "video.sentences", "video.update"} <= actions
 
 
+async def test_a_long_title_fits_the_audit_log(admin_client: AsyncClient) -> None:
+    # admin_audit_log.target_name is varchar(80). SQLite ignores the limit, so
+    # check the value written rather than rely on the database to complain.
+    title = "“You Got a Dream, You Gotta Protect It” Scene From The Pursuit of Happyness " * 2
+    created = await admin_client.post(ADMIN, json={"youtube": YOUTUBE_ID, "title": title[:150]})
+    assert created.status_code == 201, created.text
+    assert created.json()["title"] == title[:150].strip()
+
+    entry = next(
+        e
+        for e in (await admin_client.get("/api/v1/admin/audit")).json()
+        if e["action"] == "video.create"
+    )
+    assert len(entry["target_name"]) <= 80
+
+
 async def test_publishing_needs_a_source_note(admin_client: AsyncClient) -> None:
     video = await _make_video(admin_client, publish=False, source_note="")
     resp = await admin_client.patch(f"{ADMIN}/{video['id']}", json={"status": "published"})
@@ -372,6 +388,14 @@ async def test_deleting_a_video_deletes_its_tries(
 )
 def test_ending_hints(expected: str, heard: str | None, hint: str | None) -> None:
     assert ending_hint(expected, heard) == hint
+
+
+@pytest.mark.parametrize(
+    "heard", ["you got a dream you gotta protect it", "you got a dream you got to protect it"]
+)
+def test_informal_forms_match_either_way(heard: str) -> None:
+    # Film speech: "gotta" is written either way by speech-to-text.
+    assert score_words("You got a dream, you gotta protect it.", heard).score == 100
 
 
 def test_hints_come_with_the_word_match() -> None:

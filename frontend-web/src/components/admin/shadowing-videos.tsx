@@ -65,6 +65,23 @@ function rowsFrom(detail: AdminShadowingVideoDetail): Row[] {
   }));
 }
 
+/** "3:21.2 - 3:22.4 | sentence | meaning" (PRD §8.14 Phase 4). The meaning is optional. */
+const TIMED_LINE = /^(\d[\d:.]*)\s*[-–—]\s*(\d[\d:.]*)\s*\|\s*(.+?)\s*(?:\|\s*(.*))?$/;
+
+/** One pasted line: a bare sentence, "sentence | meaning", or the timed form above. */
+function parseLine(line: string): Pick<Row, "text" | "translation" | "start" | "end"> {
+  const timed = TIMED_LINE.exec(line);
+  if (timed) {
+    const start = parseClock(timed[1]);
+    const end = parseClock(timed[2]);
+    if (start !== null && end !== null) {
+      return { text: timed[3], translation: (timed[4] ?? "").trim(), start, end };
+    }
+  }
+  const [text, translation = ""] = line.split("|").map((part) => part.trim());
+  return { text, translation, start: null, end: null };
+}
+
 function rowProblem(row: Row): string | null {
   const words = row.text.trim().split(/\s+/).filter(Boolean).length;
   if (words === 0) return "Type the sentence.";
@@ -287,17 +304,10 @@ function VideoEditor({ videoId, onBack }: { videoId: string; onBack: () => void 
       .filter(Boolean);
     if (lines.length === 0) return;
     setRows((prev) =>
-      [
-        ...prev,
-        ...lines.map((text) => ({
-          key: newRowKey(),
-          id: null,
-          text,
-          translation: "",
-          start: null,
-          end: null,
-        })),
-      ].slice(0, MAX_ROWS),
+      [...prev, ...lines.map((line) => ({ key: newRowKey(), id: null, ...parseLine(line) }))].slice(
+        0,
+        MAX_ROWS,
+      ),
     );
     setTranscript("");
     setDirty(true);
@@ -480,6 +490,10 @@ function VideoEditor({ videoId, onBack }: { videoId: string; onBack: () => void 
                 className={`${INPUT} resize-y`}
               />
             </Field>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Already timed? Paste <code>start - end | sentence | meaning</code>, e.g.{" "}
+              <code>3:21.0 - 3:22.5 | Hi! Are you Anna? | Chào! Bạn là Anna phải không?</code>
+            </p>
             <button
               disabled={!transcript.trim()}
               onClick={addLines}

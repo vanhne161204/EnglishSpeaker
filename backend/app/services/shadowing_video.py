@@ -39,6 +39,8 @@ _ID_PATHS = {"embed", "shorts", "live", "v"}
 MIN_SEGMENT_MS = 300
 MAX_SEGMENT_MS = 30_000
 MAX_SEGMENT_WORDS = 40
+#: Length of admin_audit_log.target_name (app/models/admin_audit.py).
+AUDIT_NAME_MAX = 80
 
 
 class VideoNotReady(AppError):
@@ -215,6 +217,8 @@ class ShadowingVideoAdminService:
             action=action,
             target_type="shadowing_video",
             target_id=video.id,
-            target_name=video.title,
+            # admin_audit_log.target_name is varchar(80) but a title may be 200.
+            # Postgres refuses the longer value (a 500 on create); SQLite never did.
+            target_name=video.title[:AUDIT_NAME_MAX],
             detail=detail,
         )
