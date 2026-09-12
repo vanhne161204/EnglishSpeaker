@@ -930,7 +930,9 @@ Admin flow (Admin → **Shadowing videos**):
    timed in step 3.
 3. Play the video and press **Mark** (or the M key) at the start of the first
    sentence and at the end of each sentence. Fix any timing by hand: set it from
-   the player, nudge it by 0.1 s, and preview the sentence.
+   the player, nudge it by 0.1 s, and preview the sentence. Mark does nothing
+   before the video has played (it would stamp 0:00.0), and **Clear times**
+   starts the marking over.
 4. Save, then publish. Learners see only published videos.
 
 Rules. YouTube's Terms of Service and Developer Policies set most of them:

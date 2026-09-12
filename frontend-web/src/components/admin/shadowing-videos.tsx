@@ -92,6 +92,11 @@ function rowProblem(row: Row): string | null {
   return null;
 }
 
+/** No usable start yet: never marked, or stamped with an end that is not after it. */
+function needsStart(row: Row): boolean {
+  return row.start === null || (row.end !== null && row.end <= row.start);
+}
+
 export function ShadowingVideosManager() {
   const [openId, setOpenId] = useState<string | null>(null);
   if (openId) return <VideoEditor key={openId} videoId={openId} onBack={() => setOpenId(null)} />;
@@ -233,6 +238,7 @@ function VideoEditor({ videoId, onBack }: { videoId: string; onBack: () => void 
   const [rows, setRows] = useState<Row[]>([]);
   const [cursor, setCursor] = useState(0);
   const [dirty, setDirty] = useState(false);
+  const [markHint, setMarkHint] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
   const [title, setTitle] = useState("");
   const [level, setLevel] = useState<string>("");
@@ -315,24 +321,44 @@ function VideoEditor({ videoId, onBack }: { videoId: string; onBack: () => void 
 
   const nowMs = () => Math.round(playback.currentMs());
 
+  const clearTimes = () => {
+    if (!window.confirm("Clear the start and end of every sentence?")) return;
+    setRows((prev) => prev.map((row) => ({ ...row, start: null, end: null })));
+    setCursor(0);
+    setMarkHint(null);
+    setDirty(true);
+  };
+
   // One key per boundary: the first press starts the sentence, the next ends it
   // and starts the one after, so a single pass through the video times them all.
   const mark = useCallback(() => {
     const row = rows[cursor];
     if (!yt.player || !row) return;
     const t = Math.round(playback.currentMs());
+    // Before the video has played the player reports 0:00.0, and a press would
+    // stamp the sentence with the very start of the video.
+    if (!playing && t < 100) {
+      setMarkHint("Play the video first, then press M when the sentence starts.");
+      return;
+    }
+    setMarkHint(null);
     const next = rows.map((r) => ({ ...r }));
-    if (row.start === null) {
+    if (needsStart(row)) {
       next[cursor].start = t;
+      next[cursor].end = null;
     } else {
       next[cursor].end = t;
       const following = next[cursor + 1];
-      if (following && following.start === null) following.start = t;
+      // The next sentence starts here, unless it was already marked later on.
+      if (following && (following.start === null || following.start < t)) {
+        following.start = t;
+        if (following.end !== null && following.end <= t) following.end = null;
+      }
       if (cursor + 1 < rows.length) setCursor(cursor + 1);
     }
     setRows(next);
     setDirty(true);
-  }, [rows, cursor, yt.player, playback]);
+  }, [rows, cursor, yt.player, playback, playing]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -436,14 +462,22 @@ function VideoEditor({ videoId, onBack }: { videoId: string; onBack: () => void 
             >
               −2 s
             </button>
+            <button
+              onClick={clearTimes}
+              disabled={rows.length === 0}
+              className="rounded-full border border-border px-4 py-2 text-sm font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50"
+            >
+              Clear times
+            </button>
             <span className="ml-1 text-sm tabular-nums text-muted-foreground">
               {formatClock(playback.nowMs)}
             </span>
           </div>
+          {markHint && <p className="text-xs font-medium text-destructive">{markHint}</p>}
           <p className="text-xs text-muted-foreground">
             {current
               ? `Marking sentence ${cursor + 1}: press Mark at its ${
-                  current.start === null ? "start" : "end"
+                  needsStart(current) ? "start" : "end"
                 }. `
               : "Add the transcript first. "}
             Pressing at the end of a sentence also starts the next one. Click outside the video
