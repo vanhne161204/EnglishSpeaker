@@ -40,6 +40,7 @@ import { levelLabel, LEVELS } from "@/lib/presentation";
 import { AuditPanel } from "@/components/admin/audit-panel";
 import { OverviewStrip } from "@/components/admin/overview-strip";
 import { SafetyPanel } from "@/components/admin/safety-panel";
+import { ShadowingVideosManager } from "@/components/admin/shadowing-videos";
 import { SpendPanel } from "@/components/admin/spend-panel";
 import { UsersManager } from "@/components/admin/users-manager";
 import { ErrorState } from "./topics.index";
@@ -59,7 +60,16 @@ export const Route = createFileRoute("/admin")({
 });
 
 // Running the product comes before editing its content, so people and money lead.
-const TABS = ["users", "spend", "safety", "categories", "topics", "content", "audit"] as const;
+const TABS = [
+  "users",
+  "spend",
+  "safety",
+  "categories",
+  "topics",
+  "content",
+  "videos",
+  "audit",
+] as const;
 type Tab = (typeof TABS)[number];
 
 const TAB_LABELS: Record<Tab, string> = {
@@ -69,6 +79,7 @@ const TAB_LABELS: Record<Tab, string> = {
   categories: "Categories",
   topics: "Topics",
   content: "Questions & answers",
+  videos: "Shadowing videos",
   audit: "Audit log",
 };
 
@@ -140,6 +151,7 @@ function AdminPage() {
         {tab === "categories" && <CategoriesManager />}
         {tab === "topics" && <TopicsManager />}
         {tab === "content" && <ContentManager />}
+        {tab === "videos" && <ShadowingVideosManager />}
         {tab === "audit" && <AuditPanel />}
       </section>
     </>

@@ -99,11 +99,30 @@ _WORD = re.compile(r"[a-z0-9]+(?:'[a-z]+)*")
 _SPLIT = re.compile(r"[\s\-/–—]+")
 
 
+#: Grammar endings Vietnamese speakers often drop (no Vietnamese word ends in a
+#: consonant cluster), longest first, with the ending shown to the learner.
+_ENDINGS: tuple[tuple[str, str], ...] = (
+    ("'s", "-'s"),
+    ("ing", "-ing"),
+    ("ies", "-s"),
+    ("ied", "-ed"),
+    ("es", "-s"),
+    ("ed", "-ed"),
+    ("s", "-s"),
+    ("d", "-ed"),
+)
+#: A bare word shorter than this is another word, not a dropped ending: "his" is
+#: not "hi" + s.
+MIN_BARE_LENGTH = 3
+
+
 @dataclass(frozen=True, slots=True)
 class WordScore:
     word: str
     heard: str | None
     status: Status
+    #: The ending the learner left off ("-s", "-ed", "-ing", "-'s"); see ``ending_hint``.
+    hint: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,6 +222,38 @@ def align(ref: list[str], heard: list[str]) -> list[tuple[str, int | None, int |
     return ops
 
 
+def _bare_forms(word: str, suffix: str) -> set[str]:
+    """The word with ``suffix`` taken off, allowing for English spelling:
+    studies -> study, making -> make, stopped -> stop."""
+    stem = word[: -len(suffix)]
+    if suffix in ("ies", "ied"):
+        return {stem + "y"}
+    forms = {stem}
+    if suffix in ("ing", "ed"):
+        forms.add(stem + "e")
+        if len(stem) >= 2 and stem[-1] == stem[-2]:
+            forms.add(stem[:-1])
+    return forms
+
+
+def ending_hint(expected: str, heard: str | None) -> str | None:
+    """The ending the learner left off, when they said the bare word.
+
+    "worked" heard as "work" gives "-ed"; "cats" heard as "cat" gives "-s". None
+    when the words differ in any other way. Spelling only: no dictionary, no AI.
+    """
+    if not heard:
+        return None
+    word = expected.lower().replace("’", "'")
+    said = heard.lower().replace("’", "'")
+    if " " in said or word == said or len(said) < MIN_BARE_LENGTH:
+        return None
+    for suffix, shown in _ENDINGS:
+        if word.endswith(suffix) and said in _bare_forms(word, suffix):
+            return shown
+    return None
+
+
 def _merge(statuses: list[Status]) -> Status:
     """One status for a written word that was matched as several tokens ("I'm")."""
     if all(status == "ok" for status in statuses):
@@ -238,7 +289,9 @@ def score_words(reference: str, heard: str) -> MatchResult:
     for index, word in enumerate(words):
         status = _merge(statuses.get(index) or ["missed"])
         points += 1.0 if status == "ok" else 0.5 if status == "close" else 0.0
-        results.append(WordScore(word, " ".join(heard_for[index]) or None, status))
+        heard_word = " ".join(heard_for[index]) or None
+        hint = ending_hint(word, heard_word) if status in ("close", "wrong") else None
+        results.append(WordScore(word, heard_word, status, hint))
 
     score = round(100 * points / len(words)) if words else 0
     return MatchResult(score=score, words=results, extra=extra)

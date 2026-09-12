@@ -16,7 +16,12 @@ from app.models.room import Room
 from app.models.room_ban import RoomBan
 from app.models.sentence_note import SentenceNote
 from app.models.session_report import SessionReport
-from app.models.shadowing import ShadowingAttempt, ShadowingClip
+from app.models.shadowing import (
+    ShadowingAttempt,
+    ShadowingClip,
+    ShadowingSegment,
+    ShadowingVideo,
+)
 from app.models.topic import Topic
 from app.models.transcript import TranscriptSegment
 from app.models.user import User
@@ -42,6 +47,8 @@ __all__ = [
     "SessionReport",
     "ShadowingAttempt",
     "ShadowingClip",
+    "ShadowingSegment",
+    "ShadowingVideo",
     "RoomParticipant",
     "SentenceNote",
     "Topic",

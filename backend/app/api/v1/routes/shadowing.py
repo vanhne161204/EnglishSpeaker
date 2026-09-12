@@ -13,6 +13,8 @@ from app.schemas.shadowing import (
     ShadowingAttemptCreate,
     ShadowingItemList,
     ShadowingResult,
+    ShadowingVideoCard,
+    ShadowingVideoLesson,
 )
 from app.services.shadowing import ShadowingService
 
@@ -61,6 +63,31 @@ async def item_audio(
     return Response(content=clip.data, media_type=clip.mime_type, headers=headers)
 
 
+@router.get(
+    "/videos",
+    response_model=list[ShadowingVideoCard],
+    summary="Published video lessons, with how many sentences I have tried",
+)
+async def list_videos(
+    user: User = Depends(get_current_user),
+    service: ShadowingService = Depends(get_shadowing_service),
+) -> list[ShadowingVideoCard]:
+    return await service.videos(user)
+
+
+@router.get(
+    "/videos/{video_id}/items",
+    response_model=ShadowingVideoLesson,
+    summary="One video lesson: its sentences and their times, with my best scores",
+)
+async def video_items(
+    video_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    service: ShadowingService = Depends(get_shadowing_service),
+) -> ShadowingVideoLesson:
+    return await service.video_items(user, video_id)
+
+
 @router.post(
     "/attempts",
     response_model=ShadowingResult,
@@ -84,13 +111,15 @@ async def create_attempt(
     dependencies=[Depends(rate_limiter(20, 60))],
 )
 async def assess_pronunciation(
-    topic_id: uuid.UUID = Form(...),
     item_key: str = Form(..., max_length=80),
     audio: UploadFile = File(...),
+    # Exactly one: a topic sentence or a video sentence.
+    topic_id: uuid.UUID | None = Form(None),
+    video_id: uuid.UUID | None = Form(None),
     user: User = Depends(get_current_user),
     service: ShadowingService = Depends(get_shadowing_service),
 ) -> PronunciationResult:
     data = await audio.read(MAX_ASSESS_UPLOAD_BYTES + 1)
     if len(data) > MAX_ASSESS_UPLOAD_BYTES:
         raise BadRequestError("The recording is too long: 30 seconds at most.")
-    return await service.assess(user, topic_id, item_key, data)
+    return await service.assess(user, topic_id, item_key, data, video_id=video_id)

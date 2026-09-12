@@ -583,6 +583,26 @@ The app should follow these rules:
 
 Speech-to-Text does not need to be perfect in the first version. It should be good enough to help users review and improve their speaking.
 
+### Where Speech Becomes Text
+
+There are two kinds of Speech-to-Text. They run in different places.
+
+| What | Where it runs | Cost to us |
+|---|---|---|
+| Live transcript during a call | The browser's own speech recognition (Web Speech API): Chrome, Edge, Safari | $0 |
+| Record, then text: the room mic button, the Warm-up mic, and Shadowing in a browser without live recognition | Whisper, running **on the learner's device** inside the browser | $0 |
+
+Rules for Whisper on the device:
+
+- The model is `whisper-tiny.en`: English only, about 41 MB. In Chrome on a laptop it turns a 6-second clip into text in about 1.5 seconds. The bigger `whisper-base.en` (77 MB) heard the same words but took 3–6 seconds, so it is not used.
+- It downloads once, the first time the learner records. The browser keeps it, so the next visit starts at once.
+- The recording does not leave the device.
+- It runs in a background thread (a Web Worker), so the page does not freeze.
+- While the model is still downloading, or when the device cannot run it, the clip goes to the server's Speech-to-Text (`POST /transcribe`) instead. The learner always gets text.
+- The Whisper library comes from the jsDelivr CDN and the model from Hugging Face. Both are pinned to one version.
+
+**Why on the device:** the server is a 2 GB machine that also runs the database. Speech-to-Text there competes with every other request, and it gets slower as learners grow. On the device it costs us nothing and grows with the learners. This is also how Parroto does it.
+
 ## 8.10 In-Room Translator
 
 The in-room translator lets a user translate a word or phrase without leaving the conversation.
@@ -817,7 +837,8 @@ Rules:
   to send a try to Azure for a pronunciation check (see below). Even then, it is
   not stored.
 - Speech-to-text runs in the browser for free (Chrome, Edge, Safari). A browser
-  without it (Firefox) sends the clip to the server's speech-to-text instead.
+  without live recognition (Firefox) runs Whisper on the device instead (8.9).
+  Only when that cannot run does the clip go to the server's speech-to-text.
 - When the model voice is not available, the browser's own voice reads the sentence.
 
 Phases:
@@ -828,6 +849,7 @@ Phases:
 | 1 — MVP | Model voices, player with speed control, record + A/B, word-match score, best score per sentence | about 0 |
 | 2 — Deep scoring | Real pronunciation scores from Azure (accuracy, fluency, completeness, prosody), a few per day, metered and capped | about 60k–255k VND |
 | 3 — Extras | Short dialogues, shadowing while the voice plays (headphones), intonation curve, review of weak sentences | 0 |
+| 4 — Video lessons | Real speech from YouTube videos, sentence by sentence; an admin timing editor; hints for dropped word endings (see below) | 0 |
 
 Phase 1 cost:
 
@@ -837,8 +859,10 @@ Phase 1 cost:
   for 1,000 sentences, paid once.
 - The clips are stored in Postgres: no new service, and `backup.sh` already
   covers them. Move them to object storage (Cloudflare R2) if they pass about 1 GB.
-- Word matching runs on our server and costs nothing. Browser speech-to-text
-  costs nothing; the Firefox fallback costs $0.0043 per audio minute (Deepgram).
+- Word matching runs on our server and costs nothing. Browser speech-to-text and
+  Whisper on the device cost nothing. The last-resort server fallback runs
+  faster-whisper on our own machine, so it costs nothing either (Deepgram, if it
+  is ever turned on, is $0.0043 per audio minute).
 
 ### Phase 2 — deep pronunciation check
 
@@ -877,6 +901,68 @@ Phase 0 results (2026-09-12):
 - Audio of "ship", scored against the text "sheep", gave `sheep` an accuracy of 35
   with `Mispronunciation`, while the other words scored 80–100.
 - Tests with real learner voices are done on the dev deployment.
+
+### Phase 4 — video lessons
+
+A topic sentence is read by a model voice. A video lesson is real people talking,
+with real speed and real connected speech. This is the part of Parroto
+(parroto.app) worth copying, without the part that breaks YouTube's rules.
+
+Learner flow:
+
+- On the Shadowing page the learner picks **Videos**, then a video.
+- The video plays in YouTube's own player, with the lesson's sentences listed
+  beside it. Tapping a sentence jumps to it and plays it.
+- Two modes: **Stop after each sentence** (the player pauses at the end of the
+  sentence) and **Play on** (the video keeps playing, and the list follows it).
+- The learner can replay a sentence, slow it to 0.75×, and hide the sentence text.
+- Record, word match, A/B (the sentence in the video, then the learner's try), and
+  the Phase 2 pronunciation check all work as for topic sentences.
+
+Admin flow (Admin → **Shadowing videos**):
+
+1. Paste a YouTube link. Add a title, a level, and the **source and permission**
+   (for example "Creative Commons BY, channel X" or "our own channel").
+2. Paste the transcript, one sentence per line.
+3. Play the video and press **Mark** (or the M key) at the start of the first
+   sentence and at the end of each sentence. Fix any timing by hand: set it from
+   the player, nudge it by 0.1 s, and preview the sentence.
+4. Save, then publish. Learners see only published videos.
+
+Rules. YouTube's Terms of Service and Developer Policies set most of them:
+
+- The video always plays in YouTube's embedded player: visible, never covered,
+  never audio-only. The policies forbid separating the audio from the video and
+  changing or blocking the player. Hiding the sentence text is fine; hiding the
+  video is not.
+- **The app never downloads, stores or caches the video or its sound, and never
+  sends it to speech-to-text.** The policies forbid downloading. So the sentences
+  and their timings are typed by an admin. This is why learners cannot add their
+  own videos, as they can on Parroto: that would need the sound downloaded to
+  make the transcript.
+- **Watching is free for every signed-in learner.** The policies forbid charging
+  users to watch an embedded video, so Premium never unlocks a video. Premium
+  only raises the daily pronunciation checks, which are our own feature.
+- A video cannot be published without a source and permission note and at least
+  one sentence. A video whose owner turned off embedding shows an error in the
+  editor and cannot be used.
+- The player uses YouTube's privacy-enhanced mode (`youtube-nocookie.com`).
+- A sentence is 1–40 words and 0.3–30 seconds long (30 s is Azure's limit for a
+  check). A video has at most 300 sentences.
+
+Word-ending hints:
+
+- Vietnamese has no word-final consonant clusters, so learners often drop
+  English endings: "worked" comes out as "work", "cats" as "cat".
+- When the word heard is the sentence word without its ending, the result says
+  which ending to say: `-s`, `-ed`, `-ing` or `-'s`. It works for topic
+  sentences and video lessons.
+- It is worked out from spelling, on our server. It needs no dictionary or AI,
+  and it costs nothing. Like the score, it is part of the word match, not a
+  pronunciation check.
+
+Cost: 0. YouTube streams the video; the timings are typed once by an admin; the
+scoring is the same as for topic sentences.
 
 ## 9. User Types
 

@@ -334,9 +334,13 @@ documentation — each section is flattened into a short prompt line (RAG, §8.2
 
 ### `POST /transcribe`
 Transcribe recorded audio to text (PRD §8.9). Multipart upload: `audio` (file) and
-optional `language`. Powered by offline **faster-whisper** (open-source, no LLM)
-when installed; otherwise a labelled stub. Returns
-`{ "text": "...", "language": "en", "provider": "whisper" | "stub" }`.
+optional `language`. The engine is `STT_PROVIDER`: offline **faster-whisper**
+(open-source, no LLM, the default), Deepgram, or a labelled stub. Returns
+`{ "text": "...", "language": "en", "provider": "whisper" | "deepgram" | "stub" }`.
+
+This is now the **fallback**. The web app first runs Whisper on the learner's
+device and calls this endpoint only while the model is still downloading, when
+the device cannot run it, or for a language other than English.
 
 ## AI Voice Coach (Warm-up)
 
@@ -412,19 +416,49 @@ to a matching `If-None-Match`.
   monthly AI budget is spent. Fall back to the browser voice.
 - `404` if `key` is not a sentence of that topic. Rate limit: 120 per minute.
 
+### `GET /shadowing/videos`
+Published video lessons (PRD §8.14 Phase 4), newest first. A video with no
+sentences is left out.
+
+```json
+[ { "id": "…", "youtube_id": "dQw4w9WgXcQ", "title": "Ordering coffee", "level": "beginner",
+    "sentences": 12, "practised": 3 } ]
+```
+
+`practised` is how many of its sentences I have tried at least once.
+
+### `GET /shadowing/videos/{video_id}/items`
+One video lesson: its sentences, where each starts and ends in the video, and my
+best score for each. `404` for an unknown or unpublished video.
+
+```json
+{ "id": "…", "youtube_id": "dQw4w9WgXcQ", "title": "Ordering coffee", "level": "beginner",
+  "source_note": "Creative Commons BY, channel …", "assess_enabled": true, "assess_remaining": 3,
+  "items": [ { "key": "segment-…", "text": "Can I get a latte, please?", "translation": null,
+               "start_ms": 12400, "end_ms": 14100, "best_score": null, "attempts": 0 } ] }
+```
+
+The web app plays the sentence in YouTube's embedded player (`seekTo(start)`,
+pause at `end`). The server never touches the video.
+
 ### `POST /shadowing/attempts`
 Score one try and keep it. Returns `201`:
 
 ```json
-// request
+// request: topic_id OR video_id (exactly one; both or neither is a 422)
 { "topic_id": "…", "item_key": "question-…", "heard_text": "where you go last summer",
   "duration_ms": 2100, "reference_ms": 1900, "engine": "browser" }
 // response
 { "score": 83,
-  "words": [ { "word": "Where", "heard": "where", "status": "ok" },
-             { "word": "did", "heard": null, "status": "missed" } ],
+  "words": [ { "word": "Where", "heard": "where", "status": "ok", "hint": null },
+             { "word": "did", "heard": null, "status": "missed", "hint": null } ],
   "extra": [], "tempo_ratio": 1.11, "tempo": "good", "best_score": 83, "attempts": 1 }
 ```
+
+- `hint` is the ending the learner left off (`-s`, `-ed`, `-ing` or `-'s`) when
+  the word heard is the sentence word without it: "worked" heard as "work" gives
+  `-ed`. It comes from spelling alone and is part of the word match.
+- For a video sentence, `reference_ms` is `end_ms - start_ms`.
 
 - `score` is a **word match** from 0 to 100, **not** a pronunciation score:
   `ok` = 1, `close` (nearly the same spelling, e.g. "colour"/"color") = ½,
@@ -436,7 +470,7 @@ Score one try and keep it. Returns `201`:
 
 ### `POST /shadowing/assess`
 Deep pronunciation check of one try, by Azure (PRD §8.14 Phase 2). Multipart form:
-`topic_id`, `item_key`, and `audio`. The audio must be a WAV file with 16-bit PCM,
+`topic_id` or `video_id` (exactly one), `item_key`, and `audio`. The audio must be a WAV file with 16-bit PCM,
 16 kHz, mono, 0.3–30 seconds long; the browser converts the recording. Returns `200`:
 
 ```json
@@ -459,6 +493,48 @@ Deep pronunciation check of one try, by Azure (PRD §8.14 Phase 2). Multipart fo
 - Rate limit: 20 per minute.
 - The item list (`GET /shadowing/topics/{id}/items`) also returns
   `assess_enabled` and `assess_remaining`.
+
+## Admin — Shadowing videos
+
+Video lessons for Shadowing (PRD §8.14 Phase 4). Admins only (`403` otherwise).
+Every change is written to the audit log (`video.create`, `video.update`,
+`video.sentences`, `video.delete`).
+
+### `GET /admin/shadowing/videos`
+Every video lesson, drafts included, newest first, with its number of sentences.
+
+### `POST /admin/shadowing/videos`
+Add a video lesson as a **draft**. Returns `201` with the lesson and its sentences.
+
+```json
+{ "youtube": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "title": "Ordering coffee",
+  "level": "beginner", "source_note": "Creative Commons BY, channel …" }
+```
+
+`youtube` takes a watch, `youtu.be`, shorts, live or embed link, or the 11-character
+id. Anything else is a `400`. The server never fetches the video.
+
+### `GET /admin/shadowing/videos/{id}` · `PATCH /admin/shadowing/videos/{id}` · `DELETE /admin/shadowing/videos/{id}`
+Read, edit (`title`, `level`, `source_note`, `status`) or delete a lesson. Deleting
+also deletes every learner's tries at it.
+
+- Publishing (`"status": "published"`) needs a `source_note` and at least one
+  sentence; otherwise `400 video_not_ready`.
+
+### `PUT /admin/shadowing/videos/{id}/segments`
+Replace the lesson's sentences. Send the **whole** list: a sentence left out is deleted.
+
+```json
+{ "segments": [ { "id": "…", "start_ms": 12400, "end_ms": 14100,
+                  "text": "Can I get a latte, please?", "translation": null } ] }
+```
+
+- Send `id` for a sentence that already exists. It keeps its key, so learners'
+  best scores on it survive. Leave `id` out for a new sentence.
+- Each sentence: 0.3–30 seconds long, 1–40 words. At most 300 sentences. A bad
+  sentence is a `400` that names it by its place in the list ("Sentence 3: …").
+- Sentences are stored in order of start time.
+- A published lesson cannot be left with no sentences (`400 video_not_ready`).
 
 ## Sentence Notes
 

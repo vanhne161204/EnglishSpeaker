@@ -625,11 +625,38 @@ CREATE TABLE shadowing_clips (
     updated_at   timestamptz NOT NULL DEFAULT now()
 );
 
+-- Phase 4: YouTube video lessons. Only the video id is kept; the video and its
+-- sound are never downloaded (YouTube's terms forbid it).
+CREATE TABLE shadowing_videos (
+    id           uuid PRIMARY KEY,
+    youtube_id   varchar(11) NOT NULL,          -- indexed
+    title        varchar(200) NOT NULL,
+    level        varchar(40),
+    source_note  text NOT NULL DEFAULT '',      -- source and permission; required to publish
+    status       varchar(20) NOT NULL DEFAULT 'draft',   -- draft | published | archived
+    created_by   uuid REFERENCES users(id) ON DELETE SET NULL,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE shadowing_segments (
+    id           uuid PRIMARY KEY,
+    video_id     uuid NOT NULL REFERENCES shadowing_videos(id) ON DELETE CASCADE,  -- indexed
+    position     integer NOT NULL,              -- order by start time, set on every save
+    start_ms     integer NOT NULL,
+    end_ms       integer NOT NULL,              -- 0.3–30 s after start_ms
+    text         text NOT NULL,                 -- 1–40 words, typed by an admin
+    translation  text,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE shadowing_attempts (
     id              uuid PRIMARY KEY,
     user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    topic_id        uuid NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
-    item_key        varchar(80) NOT NULL,       -- "question-<uuid>", "answer-<uuid>", "term-<uuid>", "example-<uuid>"
+    topic_id        uuid REFERENCES topics(id) ON DELETE CASCADE,
+    video_id        uuid REFERENCES shadowing_videos(id) ON DELETE CASCADE,
+    item_key        varchar(80) NOT NULL,       -- "question-<uuid>", "answer-<uuid>", "term-<uuid>", "example-<uuid>", "segment-<uuid>"
     reference_text  text NOT NULL,
     heard_text      text NOT NULL,
     score           integer NOT NULL,           -- word match 0-100, NOT pronunciation
@@ -639,13 +666,18 @@ CREATE TABLE shadowing_attempts (
     reference_ms    integer,
     engine          varchar(16) NOT NULL,       -- browser | server
     created_at      timestamptz NOT NULL DEFAULT now(),
-    updated_at      timestamptz NOT NULL DEFAULT now()
+    updated_at      timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT ck_shadowing_attempts_one_source CHECK ((topic_id IS NULL) <> (video_id IS NULL))
 );
 CREATE INDEX ix_shadowing_attempts_user_topic ON shadowing_attempts (user_id, topic_id, created_at);
+CREATE INDEX ix_shadowing_attempts_user_video ON shadowing_attempts (user_id, video_id, created_at);
 ```
 
-> `item_key` is not a foreign key: it can point at a question, an answer template
-> or a doc item. Each generated clip writes one `ai_usage` row (`task = 'shadowing_tts'`).
+> `item_key` is not a foreign key: it can point at a question, an answer template,
+> a doc item or a video segment. A try belongs to a topic or a video, never both
+> (the check). A video segment keeps its id when an admin saves the list again, so
+> learners' best scores survive edits. Each generated clip writes one `ai_usage`
+> row (`task = 'shadowing_tts'`).
 
 ### 6.9 Subscription, Plans, and Usage
 

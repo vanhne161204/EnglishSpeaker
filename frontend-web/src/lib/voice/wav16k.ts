@@ -1,21 +1,27 @@
 // Turn a MediaRecorder clip (webm/opus in Chrome and Firefox, mp4/aac in Safari)
-// into the one format Azure pronunciation assessment takes over REST: WAV,
-// 16-bit PCM, 16 kHz, mono (PRD §8.14 Phase 2). Done in the browser with the Web
-// Audio API, so the server needs no audio codecs and never decodes anything.
+// into 16 kHz mono audio. Two users need exactly that:
+//   - Azure pronunciation assessment over REST takes WAV, 16-bit PCM, 16 kHz,
+//     mono (PRD §8.14 Phase 2).
+//   - Whisper on the device takes 16 kHz mono samples (PRD §8.9).
+// Done in the browser with the Web Audio API, so the server needs no audio
+// codecs and never decodes anything.
 
-/** Azure's REST format for pronunciation assessment. */
+/** Azure's REST format for pronunciation assessment, and Whisper's input rate. */
 export const ASSESS_SAMPLE_RATE = 16_000;
 /** Azure takes at most 30 seconds for pronunciation assessment. */
 export const ASSESS_MAX_SECONDS = 30;
 
-/** Decode any clip the browser can play and re-encode it as 16 kHz mono WAV. */
-export async function toWav16kMono(clip: Blob): Promise<Blob> {
+/** Decode any clip the browser can play into 16 kHz mono samples in [-1, 1]. */
+export async function decode16kMono(
+  clip: Blob,
+  maxSeconds: number = ASSESS_MAX_SECONDS,
+): Promise<Float32Array> {
   const encoded = await clip.arrayBuffer();
   // An OfflineAudioContext can decode without a user gesture or an audio device.
   const decoder = new OfflineAudioContext(1, 1, ASSESS_SAMPLE_RATE);
   const decoded = await decoder.decodeAudioData(encoded);
 
-  const seconds = Math.min(decoded.duration, ASSESS_MAX_SECONDS);
+  const seconds = Math.min(decoded.duration, maxSeconds);
   const length = Math.max(1, Math.ceil(seconds * ASSESS_SAMPLE_RATE));
   // One output channel at 16 kHz: the browser resamples, and mixes stereo down.
   const renderer = new OfflineAudioContext(1, length, ASSESS_SAMPLE_RATE);
@@ -24,7 +30,12 @@ export async function toWav16kMono(clip: Blob): Promise<Blob> {
   source.connect(renderer.destination);
   source.start();
   const rendered = await renderer.startRendering();
-  return encodeWav(rendered.getChannelData(0), ASSESS_SAMPLE_RATE);
+  return rendered.getChannelData(0);
+}
+
+/** Decode any clip the browser can play and re-encode it as 16 kHz mono WAV. */
+export async function toWav16kMono(clip: Blob): Promise<Blob> {
+  return encodeWav(await decode16kMono(clip), ASSESS_SAMPLE_RATE);
 }
 
 /** Float32 samples in [-1, 1] → a 16-bit PCM mono WAV file. */

@@ -1147,7 +1147,7 @@ Assume 100 active learners, 4 sessions each per month, 30 minutes per session.
 | Rescue Me — 10 taps, Haiku 4.5 | $0.016 | $6.40 |
 | Layer 1 — sentence check, Opus 5 (3 calls) | $0.15 | $60.00 |
 | Layer 2 — IELTS report, Opus 5 (1 call, effort `high`) | $0.06 | $24.00 |
-| Speech-to-Text (browser Web Speech) | $0.00 | $0.00 |
+| Speech-to-Text (browser Web Speech + Whisper on the device, PRD §8.9) | $0.00 | $0.00 |
 | **Total (sync)** | **$0.23** | **~$90** |
 | **Total (Batch API for both layers)** | **$0.12** | **~$47** |
 

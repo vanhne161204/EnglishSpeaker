@@ -13,6 +13,10 @@ const ACTION_LABELS: Record<string, string> = {
   "user.delete": "Deleted an account",
   "report.review": "Decided a report",
   "ban.lift": "Lifted a ban",
+  "video.create": "Added a shadowing video",
+  "video.update": "Changed a shadowing video",
+  "video.sentences": "Edited a video's sentences",
+  "video.delete": "Deleted a shadowing video",
 };
 
 export function AuditPanel() {

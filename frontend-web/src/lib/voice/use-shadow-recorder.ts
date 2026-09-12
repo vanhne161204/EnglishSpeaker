@@ -5,13 +5,15 @@
 //     model voice (A/B). It stays in the browser: nothing is uploaded unless the
 //     browser has no speech recognition (below).
 //   - The Web Speech API turns it into words, for free. Where it does not exist
-//     (Firefox), the clip goes to POST /transcribe instead (engine "server").
+//     (Firefox), Whisper runs on the device instead, still engine "browser"
+//     (PRD §8.9). Only when that cannot run does the clip go to POST /transcribe
+//     (engine "server").
 //   - An AnalyserNode notes when speech starts and stops, so "how fast did you
 //     say it" measures the words, not the time it took to reach the Stop button.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { transcribe } from "@/lib/api";
+import { clipToText, preloadWhisper } from "@/lib/voice/browser-whisper";
 
 export interface ShadowTake {
   readonly blob: Blob;
@@ -224,6 +226,9 @@ export function useShadowRecorder(): UseShadowRecorderResult {
         wantRecognitionRef.current = false;
         recognitionRef.current = null;
       }
+    } else {
+      // No live recognition: load Whisper while the learner speaks.
+      preloadWhisper();
     }
     setRecording(true);
   }, [release]);
@@ -275,8 +280,10 @@ export function useShadowRecorder(): UseShadowRecorderResult {
         const heardText = (finalTextRef.current || interimTextRef.current).trim();
         return { blob, heardText, speechMs, engine: "browser" };
       }
-      const result = await transcribe(blob, "en");
-      return { blob, heardText: result.text.trim(), speechMs, engine: "server" };
+      const result = await clipToText(blob, "en");
+      // Whisper on the device is still speech-to-text in the browser.
+      const engine = result.engine === "device" ? "browser" : "server";
+      return { blob, heardText: result.text, speechMs, engine };
     } catch (err) {
       setError(`Couldn't check your words: ${(err as Error).message}`);
       return { blob, heardText: "", speechMs, engine: recognition ? "browser" : "server" };

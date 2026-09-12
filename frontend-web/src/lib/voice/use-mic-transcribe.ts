@@ -1,15 +1,14 @@
-// Record a short audio clip and transcribe it via the server `/transcribe`
-// endpoint (PRD §8.9). Shared by the in-room mic and Warm-up so both use one
-// accurate, cross-browser path — the server decides the engine (Deepgram cloud
-// API, faster-whisper, or a stub). Unlike the browser Web Speech API, this works
-// in every browser and is not accent-locked to en-US.
+// Record a short audio clip and turn it into text (PRD §8.9). Used by Warm-up.
+// Whisper runs on the learner's device when its model is ready; otherwise the
+// clip goes to the server `/transcribe` endpoint (see `browser-whisper.ts`).
+// Unlike the browser Web Speech API, both work in every browser.
 //
-// Flow: tap to start (records), tap to stop → upload the clip → the transcript
-// comes back and is delivered once via `onResult`.
+// Flow: tap to start (records, and starts loading the model), tap to stop →
+// the clip is transcribed → the text is delivered once via `onResult`.
 
 import { useCallback, useRef, useState } from "react";
 
-import { transcribe } from "@/lib/api";
+import { clipToText, preloadWhisper } from "@/lib/voice/browser-whisper";
 
 export interface UseMicTranscribeResult {
   /** Whether this browser can record audio at all. */
@@ -95,8 +94,7 @@ export function useMicTranscribe(
         }
         setBusy(true);
         try {
-          const res = await transcribe(blob, language);
-          const text = res.text.trim();
+          const { text } = await clipToText(blob, language);
           if (text) onResultRef.current(text);
           else setError("Couldn't hear any words. Try again, a little louder.");
         } catch (e) {
@@ -108,6 +106,8 @@ export function useMicTranscribe(
       recorderRef.current = recorder;
       recorder.start();
       setListening(true);
+      // Load the model while the learner speaks. A no-op after the first time.
+      if (!language || language.startsWith("en")) preloadWhisper();
     } catch {
       stream.getTracks().forEach((t) => t.stop());
       setError("Couldn't start recording on this device.");

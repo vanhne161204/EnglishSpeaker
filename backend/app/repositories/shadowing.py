@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.shadowing import ShadowingAttempt, ShadowingClip
+from app.models.shadowing import ShadowingAttempt, ShadowingClip, ShadowingVideo
 
 
 class ShadowingRepository:
@@ -29,13 +29,53 @@ class ShadowingRepository:
         return attempt
 
     async def best_scores(
-        self, user_id: uuid.UUID, topic_id: uuid.UUID
+        self,
+        user_id: uuid.UUID,
+        topic_id: uuid.UUID | None = None,
+        *,
+        video_id: uuid.UUID | None = None,
     ) -> dict[str, tuple[int, int]]:
-        """item_key -> (best score, number of tries), for one learner in one topic."""
+        """item_key -> (best score, number of tries), for one learner in one topic
+        or one video."""
+        where = (
+            ShadowingAttempt.video_id == video_id
+            if video_id is not None
+            else ShadowingAttempt.topic_id == topic_id
+        )
         stmt = (
             select(ShadowingAttempt.item_key, func.max(ShadowingAttempt.score), func.count())
-            .where(ShadowingAttempt.user_id == user_id, ShadowingAttempt.topic_id == topic_id)
+            .where(ShadowingAttempt.user_id == user_id, where)
             .group_by(ShadowingAttempt.item_key)
         )
         rows = (await self.session.execute(stmt)).all()
         return {key: (int(best), int(tries)) for key, best, tries in rows}
+
+    async def practised_by_video(self, user_id: uuid.UUID) -> dict[uuid.UUID, int]:
+        """video_id -> how many of its sentences this learner has tried."""
+        stmt = (
+            select(ShadowingAttempt.video_id, func.count(distinct(ShadowingAttempt.item_key)))
+            .where(ShadowingAttempt.user_id == user_id, ShadowingAttempt.video_id.is_not(None))
+            .group_by(ShadowingAttempt.video_id)
+        )
+        rows = (await self.session.execute(stmt)).all()
+        return {video_id: int(count) for video_id, count in rows if video_id is not None}
+
+    # --- videos (Phase 4) ---------------------------------------------------
+
+    async def list_videos(self, *, published_only: bool) -> list[ShadowingVideo]:
+        stmt = select(ShadowingVideo).order_by(ShadowingVideo.created_at.desc())
+        if published_only:
+            stmt = stmt.where(ShadowingVideo.status == "published")
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def get_video(self, video_id: uuid.UUID) -> ShadowingVideo | None:
+        return await self.session.get(ShadowingVideo, video_id)
+
+    async def add_video(self, video: ShadowingVideo) -> ShadowingVideo:
+        self.session.add(video)
+        await self.session.flush()
+        return video
+
+    async def delete_video(self, video: ShadowingVideo) -> None:
+        await self.session.delete(video)
+        await self.session.flush()

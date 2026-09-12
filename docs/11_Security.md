@@ -19,7 +19,7 @@ Two roles. Anyone not signed in can look, but cannot practise.
 |---|---|---|
 | **Anonymous** | Not signed in | Browse the marketing pages and the topic library. Nothing else. |
 | **User** | Registered with username + password | Rooms, warm-up, shadowing, matching, transcripts, Coach Reports, notes, profile |
-| **Admin** | `users.role = 'admin'` | Everything a User can, plus manage accounts, read the AI spend and safety queues, and manage topics, categories, docs and questions |
+| **Admin** | `users.role = 'admin'` | Everything a User can, plus manage accounts, read the AI spend and safety queues, and manage topics, categories, docs, questions and Shadowing video lessons |
 
 ### Practice requires an account
 

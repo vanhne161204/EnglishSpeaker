@@ -13,7 +13,6 @@ import {
   listTopics,
   moderateRoom,
   roomSocketUrl,
-  transcribe,
   translate,
   type Message,
   type ModerationAction,
@@ -31,6 +30,7 @@ import { ReportDialog } from "@/components/room/report-dialog";
 import { IdeaPanel } from "@/components/room/idea-panel";
 import type { TranscriptLine } from "@/components/room/transcript-panel";
 import { TranscriptPanel } from "@/components/room/transcript-panel";
+import { clipToText, preloadWhisper, useWhisperStatus } from "@/lib/voice/browser-whisper";
 import { useLiveTranscribe } from "@/lib/voice/use-live-transcribe";
 import { useRoomVoice } from "@/lib/voice/use-room-voice";
 import { VOICE_FILTERS, voiceFilterLabel, type VoiceFilterId } from "@/lib/voice/voice-mask";
@@ -883,9 +883,13 @@ function RoomLive({
                   className="border-t border-border p-3 flex items-center gap-2"
                 >
                   <MicButton
-                    onTranscript={(t) => {
+                    onTranscript={(t, engine) => {
                       setDraft((d) => (d ? `${d} ${t}` : t));
-                      setNotice("Speech turned into text — edit and send, or save it.");
+                      setNotice(
+                        engine === "device"
+                          ? "Speech turned into text on your device — edit and send, or save it."
+                          : "Speech turned into text — edit and send, or save it.",
+                      );
                       window.setTimeout(() => setNotice(null), 2500);
                     }}
                     onError={(msg) => {
@@ -1459,17 +1463,18 @@ function IncognitoSetupModal({
   );
 }
 
-/* ---------- Speech-to-text mic (real /transcribe) ---------- */
+/* ---------- Speech-to-text mic (Whisper on the device, else /transcribe) ---------- */
 
 function MicButton({
   onTranscript,
   onError,
 }: {
-  onTranscript: (text: string) => void;
+  onTranscript: (text: string, engine: "device" | "server") => void;
   onError: (msg: string) => void;
 }) {
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
+  const whisper = useWhisperStatus();
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
@@ -1522,8 +1527,9 @@ function MicButton({
         }
         setBusy(true);
         try {
-          const res = await transcribe(blob);
-          if (res.text.trim()) onTranscript(res.text.trim());
+          // English: a practice room, and the on-device models are English only.
+          const { text, engine } = await clipToText(blob, "en");
+          if (text) onTranscript(text, engine);
           else onError("Couldn't hear any words. Try again, a little louder.");
         } catch (e) {
           onError(`Transcription failed: ${(e as Error).message}`);
@@ -1534,6 +1540,8 @@ function MicButton({
       recorderRef.current = recorder;
       recorder.start();
       setRecording(true);
+      // Load the speech model while the user speaks. A no-op after the first time.
+      preloadWhisper();
     } catch {
       stream.getTracks().forEach((t) => t.stop());
       onError("Couldn't start recording on this device.");
@@ -1545,7 +1553,13 @@ function MicButton({
       type="button"
       onClick={recording ? stop : start}
       disabled={busy}
-      title={recording ? "Stop and transcribe" : "Speak — turn your voice into text (STT)"}
+      title={
+        recording
+          ? "Stop and transcribe"
+          : whisper.state === "loading"
+            ? `Speak — turn your voice into text (speech model downloading, ${whisper.progress}%)`
+            : "Speak — turn your voice into text (STT)"
+      }
       aria-label="Speech to text"
       className={`flex-none rounded-full px-3 py-2 text-sm font-semibold disabled:opacity-50 ${
         recording

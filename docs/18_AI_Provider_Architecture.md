@@ -782,6 +782,14 @@ Note that `Transcriber` gets metered too, but into a separate table or with
 `ModelPrice` equivalent takes seconds rather than tokens. Do not force per-token
 pricing onto an engine that does not bill that way.
 
+**The server `Transcriber` is now the fallback** (PRD §8.9, 2026-09-12). For
+record-then-text, the web app runs Whisper on the learner's device first
+(`frontend-web/src/lib/voice/browser-whisper.ts`: transformers.js 4.2.0 in a Web
+Worker, `whisper-tiny.en` in 8-bit, about 41 MB). That path
+never reaches the server, so it is not in `ai_usage`, and it costs $0. The
+ledger's `transcribe` rows now count only fallbacks. A rising count means
+devices are failing to run the model.
+
 ---
 
 ## 18.11 Migration status

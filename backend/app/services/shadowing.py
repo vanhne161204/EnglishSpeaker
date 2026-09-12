@@ -5,6 +5,9 @@ Warm-up — so there is nothing extra to author. Every endpoint finds a sentence
 (topic, key) in that list. So an unpublished or deleted sentence can never be
 synthesised, scored or assessed, and nobody can make a vendor process text of
 their choosing.
+
+Video lessons (Phase 4) work the same way: a sentence is found by (video, key)
+among the segments of a PUBLISHED video.
 """
 
 from __future__ import annotations
@@ -34,7 +37,12 @@ from app.core.exceptions import AppError, BadRequestError, NotFoundError
 from app.models.ai_usage import AiUsage
 from app.models.doc import Doc
 from app.models.enums import ContentStatus, DocSectionType, PlanTier
-from app.models.shadowing import ShadowingAttempt, ShadowingClip
+from app.models.shadowing import (
+    ShadowingAttempt,
+    ShadowingClip,
+    ShadowingSegment,
+    ShadowingVideo,
+)
 from app.models.topic import Topic
 from app.models.user import User
 from app.repositories.ai_usage import AiUsageRepository
@@ -48,6 +56,9 @@ from app.schemas.shadowing import (
     ShadowingItemList,
     ShadowingKind,
     ShadowingResult,
+    ShadowingSegmentItem,
+    ShadowingVideoCard,
+    ShadowingVideoLesson,
     WordResult,
 )
 from app.services.shadowing_score import score_words, tempo
@@ -236,7 +247,16 @@ def _find(sentences: list[Sentence], key: str) -> Sentence:
     for sentence in sentences:
         if sentence.key == key:
             return sentence
-    raise NotFoundError("Sentence not found in this topic")
+    raise NotFoundError("Sentence not found in this lesson")
+
+
+def segment_key(segment_id: uuid.UUID) -> str:
+    """The item key of a video sentence."""
+    return f"segment-{segment_id}"
+
+
+def _segment_sentence(segment: ShadowingSegment) -> Sentence:
+    return Sentence(segment_key(segment.id), "segment", segment.text, segment.translation, None)
 
 
 def _ms_since(started: float) -> int:
@@ -361,7 +381,7 @@ class ShadowingService:
     async def record_attempt(
         self, user: User, payload: ShadowingAttemptCreate
     ) -> ShadowingResult:
-        _, _, sentences = await self._sentences(payload.topic_id)
+        sentences = await self._sentences_for(payload.topic_id, payload.video_id)
         sentence = _find(sentences, payload.item_key)
         heard = " ".join(payload.heard_text.split())
         match = score_words(sentence.text, heard)
@@ -371,6 +391,7 @@ class ShadowingService:
             ShadowingAttempt(
                 user_id=user.id,
                 topic_id=payload.topic_id,
+                video_id=payload.video_id,
                 item_key=sentence.key,
                 reference_text=sentence.text,
                 heard_text=heard,
@@ -382,11 +403,12 @@ class ShadowingService:
                 engine=payload.engine,
             )
         )
-        best, attempts = (await self.repo.best_scores(user.id, payload.topic_id))[sentence.key]
+        scores = await self.repo.best_scores(user.id, payload.topic_id, video_id=payload.video_id)
+        best, attempts = scores[sentence.key]
         return ShadowingResult(
             score=match.score,
             words=[
-                WordResult(word=word.word, heard=word.heard, status=word.status)
+                WordResult(word=word.word, heard=word.heard, status=word.status, hint=word.hint)
                 for word in match.words
             ],
             extra=match.extra,
@@ -397,7 +419,12 @@ class ShadowingService:
         )
 
     async def assess(
-        self, user: User, topic_id: uuid.UUID, key: str, audio: bytes
+        self,
+        user: User,
+        topic_id: uuid.UUID | None,
+        key: str,
+        audio: bytes,
+        video_id: uuid.UUID | None = None,
     ) -> PronunciationResult:
         """Phase 2: a real pronunciation check of one try, by Azure.
 
@@ -407,8 +434,7 @@ class ShadowingService:
         assessor = self.assessor
         if assessor is None:
             raise PronunciationUnavailable("Pronunciation checks are not switched on.")
-        _, _, sentences = await self._sentences(topic_id)
-        sentence = _find(sentences, key)
+        sentence = _find(await self._sentences_for(topic_id, video_id), key)
         seconds = wav_seconds(audio)
 
         remaining = await self._checks_left(user)
@@ -445,6 +471,52 @@ class ShadowingService:
         )
         return build_pronunciation_result(sentence.text, report, seconds, remaining - 1)
 
+    # --- video lessons (Phase 4) ---------------------------------------------
+
+    async def videos(self, user: User) -> list[ShadowingVideoCard]:
+        """Published video lessons, newest first, with how far this learner got."""
+        practised = await self.repo.practised_by_video(user.id)
+        return [
+            ShadowingVideoCard(
+                id=video.id,
+                youtube_id=video.youtube_id,
+                title=video.title,
+                level=video.level,
+                sentences=len(video.segments),
+                practised=practised.get(video.id, 0),
+            )
+            for video in await self.repo.list_videos(published_only=True)
+            if video.segments
+        ]
+
+    async def video_items(self, user: User, video_id: uuid.UUID) -> ShadowingVideoLesson:
+        video = await self._published_video(video_id)
+        best = await self.repo.best_scores(user.id, video_id=video.id)
+        items: list[ShadowingSegmentItem] = []
+        for segment in video.segments:
+            key = segment_key(segment.id)
+            items.append(
+                ShadowingSegmentItem(
+                    key=key,
+                    text=segment.text,
+                    translation=segment.translation,
+                    start_ms=segment.start_ms,
+                    end_ms=segment.end_ms,
+                    best_score=best[key][0] if key in best else None,
+                    attempts=best[key][1] if key in best else 0,
+                )
+            )
+        return ShadowingVideoLesson(
+            id=video.id,
+            youtube_id=video.youtube_id,
+            title=video.title,
+            level=video.level,
+            source_note=video.source_note,
+            assess_enabled=self.assessor is not None,
+            assess_remaining=await self._checks_left(user) if self.assessor else 0,
+            items=items,
+        )
+
     # --- internals ---------------------------------------------------------
 
     async def _sentences(self, topic_id: uuid.UUID) -> tuple[Topic, str | None, list[Sentence]]:
@@ -455,6 +527,26 @@ class ShadowingService:
         if doc is None or doc.status != ContentStatus.published:
             return topic, topic.level, []
         return topic, doc.level or topic.level, collect_sentences(doc)
+
+    async def _sentences_for(
+        self, topic_id: uuid.UUID | None, video_id: uuid.UUID | None
+    ) -> list[Sentence]:
+        """The sentences of a topic or of a video lesson: exactly one is given."""
+        if topic_id is not None and video_id is not None:
+            raise BadRequestError("Give either topic_id or video_id, not both.")
+        if video_id is not None:
+            video = await self._published_video(video_id)
+            return [_segment_sentence(segment) for segment in video.segments]
+        if topic_id is None:
+            raise BadRequestError("Give either topic_id or video_id.")
+        _, _, sentences = await self._sentences(topic_id)
+        return sentences
+
+    async def _published_video(self, video_id: uuid.UUID) -> ShadowingVideo:
+        video = await self.repo.get_video(video_id)
+        if video is None or video.status != ContentStatus.published:
+            raise NotFoundError("Video not found")
+        return video
 
     def _daily_checks(self, user: User) -> int:
         if user.plan == PlanTier.premium:

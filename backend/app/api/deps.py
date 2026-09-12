@@ -40,6 +40,7 @@ from app.services.match import MatchService
 from app.services.note import NoteService
 from app.services.room import RoomService
 from app.services.shadowing import ShadowingService
+from app.services.shadowing_video import ShadowingVideoAdminService
 from app.services.subscription import SubscriptionService
 from app.services.topic import TopicService
 from app.services.transcription import TranscriptionService
@@ -166,6 +167,13 @@ def get_shadowing_service(
     """Wire Shadowing (PRD §8.14): sentences, stored model voices, word-match
     scoring, and (Phase 2) Azure pronunciation checks."""
     return ShadowingService(session, synthesizer, assessor)
+
+
+def get_shadowing_video_admin_service(
+    session: AsyncSession = Depends(get_session),
+) -> ShadowingVideoAdminService:
+    """Admin side of Shadowing video lessons (PRD §8.14 Phase 4)."""
+    return ShadowingVideoAdminService(session)
 
 
 def get_user_service(session: AsyncSession = Depends(get_session)) -> UserService:

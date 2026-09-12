@@ -3,7 +3,10 @@
 
 import { API_BASE_URL, ApiError, apiRequest, authToken } from "./client";
 
-export type ShadowingKind = "question" | "answer" | "term" | "example";
+export type ShadowingKind = "question" | "answer" | "term" | "example" | "segment";
+
+/** Where a sentence comes from: a topic, or a video lesson (Phase 4). */
+export type ShadowingSource = { topicId: string } | { videoId: string };
 
 export type ShadowingItem = {
   /** "<kind>-<uuid>", stable for as long as the source row exists. */
@@ -37,10 +40,14 @@ export type ShadowingWord = {
   /** What was heard in its place, or null when it was missed. */
   heard: string | null;
   status: ShadowingWordStatus;
+  /** The ending left off ("-s", "-ed", "-ing", "-'s"), worked out from spelling. */
+  hint?: string | null;
 };
 
 export type ShadowingAttemptCreate = {
-  topic_id: string;
+  /** Exactly one of `topic_id` and `video_id`. */
+  topic_id?: string;
+  video_id?: string;
   item_key: string;
   heard_text: string;
   /** How long the learner spoke, first to last loud moment. */
@@ -123,12 +130,13 @@ export async function shadowingAudio(
  * 16-bit (see `toWav16kMono`). Multipart, so it cannot go through `apiRequest`.
  */
 export async function assessPronunciation(
-  topicId: string,
+  source: ShadowingSource,
   itemKey: string,
   wav: Blob,
 ): Promise<PronunciationResult> {
   const form = new FormData();
-  form.append("topic_id", topicId);
+  if ("topicId" in source) form.append("topic_id", source.topicId);
+  else form.append("video_id", source.videoId);
   form.append("item_key", itemKey);
   form.append("audio", wav, "take.wav");
   const res = await fetch(`${API_BASE_URL}/shadowing/assess`, {
@@ -153,3 +161,114 @@ export async function assessPronunciation(
   }
   return data as PronunciationResult;
 }
+
+// ----- Phase 4: video lessons -----
+
+export type ShadowingVideoCard = {
+  id: string;
+  youtube_id: string;
+  title: string;
+  level: string | null;
+  sentences: number;
+  /** How many of its sentences I have tried at least once. */
+  practised: number;
+};
+
+export type ShadowingSegmentItem = {
+  /** "segment-<uuid>". */
+  key: string;
+  text: string;
+  translation: string | null;
+  start_ms: number;
+  end_ms: number;
+  best_score: number | null;
+  attempts: number;
+};
+
+export type ShadowingVideoLesson = {
+  id: string;
+  youtube_id: string;
+  title: string;
+  level: string | null;
+  /** Where the video comes from, shown under the player. */
+  source_note: string;
+  assess_enabled: boolean;
+  assess_remaining: number;
+  items: ShadowingSegmentItem[];
+};
+
+/** Published video lessons, newest first. */
+export const shadowingVideos = () => apiRequest<ShadowingVideoCard[]>("/shadowing/videos");
+
+/** One video lesson: its sentences and their times, with my best scores. */
+export const shadowingVideoLesson = (videoId: string) =>
+  apiRequest<ShadowingVideoLesson>(`/shadowing/videos/${videoId}/items`);
+
+// ----- Phase 4: admin -----
+
+export type VideoStatus = "draft" | "published" | "archived";
+
+export type AdminShadowingVideo = {
+  id: string;
+  youtube_id: string;
+  title: string;
+  level: string | null;
+  source_note: string;
+  status: VideoStatus;
+  sentences: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AdminVideoSegment = {
+  id: string;
+  position: number;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+  translation: string | null;
+};
+
+export type AdminShadowingVideoDetail = AdminShadowingVideo & { segments: AdminVideoSegment[] };
+
+export type AdminVideoSegmentIn = {
+  /** Keep it for an existing sentence, so learners' scores on it survive. */
+  id?: string;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+  translation?: string | null;
+};
+
+export type AdminShadowingVideoCreate = {
+  /** A YouTube link or the 11-character video id. */
+  youtube: string;
+  title: string;
+  level?: string | null;
+  source_note?: string;
+};
+
+export type AdminShadowingVideoUpdate = {
+  title?: string;
+  level?: string | null;
+  source_note?: string;
+  status?: VideoStatus;
+};
+
+const ADMIN_VIDEOS = "/admin/shadowing/videos";
+
+export const adminShadowingVideos = () => apiRequest<AdminShadowingVideo[]>(ADMIN_VIDEOS);
+export const adminShadowingVideo = (id: string) =>
+  apiRequest<AdminShadowingVideoDetail>(`${ADMIN_VIDEOS}/${id}`);
+export const adminCreateShadowingVideo = (body: AdminShadowingVideoCreate) =>
+  apiRequest<AdminShadowingVideoDetail>(ADMIN_VIDEOS, { method: "POST", body });
+export const adminUpdateShadowingVideo = (id: string, body: AdminShadowingVideoUpdate) =>
+  apiRequest<AdminShadowingVideoDetail>(`${ADMIN_VIDEOS}/${id}`, { method: "PATCH", body });
+/** Replace the whole list of sentences: one left out is deleted. */
+export const adminSaveVideoSegments = (id: string, segments: AdminVideoSegmentIn[]) =>
+  apiRequest<AdminShadowingVideoDetail>(`${ADMIN_VIDEOS}/${id}/segments`, {
+    method: "PUT",
+    body: { segments },
+  });
+export const adminDeleteShadowingVideo = (id: string) =>
+  apiRequest<void>(`${ADMIN_VIDEOS}/${id}`, { method: "DELETE" });

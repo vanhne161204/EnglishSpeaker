@@ -18,6 +18,7 @@ from app.api.v1.routes import (
     reports,
     rooms,
     shadowing,
+    shadowing_admin,
     topics,
     transcription,
     transcripts,
@@ -42,6 +43,7 @@ api_router.include_router(translation.router)
 api_router.include_router(transcription.router)
 api_router.include_router(voice_coach.router)
 api_router.include_router(shadowing.router)
+api_router.include_router(shadowing_admin.router)
 api_router.include_router(transcripts.router)
 api_router.include_router(history.router)
 api_router.include_router(users.router)
